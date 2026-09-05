@@ -55,17 +55,23 @@ printBeautiful(MatchingInfo *info, StreamContext* sc, char *file1,\
 // TO update with new offsets
 void
 printCSVHeader () {
-    fprintf(resultStream, "%s,%s,%s,%s,%s,%s\n", "First signature", "Second signature",\
-        "score", "time 1 [s]", "time 2 [s]", "whole");
+    fprintf(resultStream, "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
+        "First signature", "Second signature",\
+        "score", "matchframes", "offset", "framerateratio", "meandist",\
+        "time 1 [s]", "time 2 [s]", "whole");
 }
 
 void
 printCSV(MatchingInfo *info, StreamContext* sc, char *file1, char *file2,\
     int isFirst, int isLast, int isMoreThanOne) {
     if (info->score)
-        fprintf(resultStream, "%s,%s,%d,%.2f,%.2f,%d\n",
+        fprintf(resultStream, "%s,%s,%d,%d,%d,%.6f,%.2f,%.2f,%.2f,%d\n",
                 file1, file2,
                 info->score,
+                info->matchframes,
+                info->offset,
+                info->framerateratio,
+                info->meandist,
                 // pts is the frame number
                 ((double) info->first->pts * sc[0].time_base.num) / sc[0].time_base.den,
                 ((double) info->second->pts * sc[1].time_base.num) / sc[1].time_base.den,\
