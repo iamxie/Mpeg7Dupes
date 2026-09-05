@@ -12,6 +12,7 @@
 #include <string.h>
 #include <signal.h>
 #include <unistd.h>
+#include <time.h>
 #include <omp.h>
 
 // ffmpeg downloaded headers

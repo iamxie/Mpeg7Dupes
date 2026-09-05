@@ -71,8 +71,20 @@ main(int argc, char **argv) {
     // 4    info
     // 5    live
     // 6    debug
-    if (__DEBUG || args.verbose) {
-        slog_init("logfile", "slog.cfg", 6, 1);
+    // 7    per-frame signature dump
+    //
+    // -v is cumulative; each extra v opens one more level:
+    //   (none)  4  basic information
+    //   -v      5  progress reporting
+    //   -vv     6  per-pair processing and stage 3 match details
+    //   -vvv    7  per-frame dump
+    {
+        int logLevel = 4 + args.verbose;
+        if (logLevel > 7)
+            logLevel = 7;
+        if (__DEBUG)
+            logLevel = 7;
+        slog_init("logfile", "slog.cfg", logLevel, 1);
     }
 
     if (args.useOpenMp)
@@ -101,6 +113,25 @@ void
 processFiles(struct fileIndex *index, void (*printFunctionPointer)
     (MatchingInfo *info, StreamContext* sc, char *file1, char *file2, \
      int isFirst, int isLast, int isMoreThanOne), int useOpenMp) {
+
+    /* Total pairs is the sum of each outer iteration's inner trip count. For the
+       usual case (indexA = -1, maxIndexA = maxIndexB = N) that is N*(N-1)/2, and
+       it stays correct in incremental mode where the two bounds differ. */
+    long totalPairs = 0;
+    for (int i = index->indexA + 1; i < index->maxIndexA; ++i) {
+        long remaining = (long) index->maxIndexB - (i + 1);
+        if (remaining > 0)
+            totalPairs += remaining;
+    }
+
+    long donePairs = 0;
+    /* Report every 1%, but no more often than every 50 pairs. */
+    long progressStep = totalPairs / 100;
+    if (progressStep < 50)
+        progressStep = 50;
+    time_t startTime = time(NULL);
+
+    slog_live(5, "Comparing %ld file pairs", totalPairs);
 
     /* Session-resume bookkeeping. Now that the outer loop runs in parallel the
        iterations no longer complete in increasing order, so only advance the
@@ -157,6 +188,19 @@ processFiles(struct fileIndex *index, void (*printFunctionPointer)
 
             signature_unload(&scontexts[1]);
             fflush(resultStream);
+
+            long done;
+            #pragma omp atomic capture
+            done = ++donePairs;
+            if (done % progressStep == 0 || done == totalPairs) {
+                double elapsed = difftime(time(NULL), startTime);
+                double rate = elapsed > 0.0 ? (double) done / elapsed : 0.0;
+                slog_live(5,
+                    "Progress %ld/%ld pairs (%.1f%%), %.0f pairs/s, ETA %.0f min",
+                    done, totalPairs,
+                    100.0 * (double) done / (double) totalPairs, rate,
+                    rate > 0.0 ? ((double) (totalPairs - done)) / rate / 60.0 : 0.0);
+            }
 
         }
         signature_unload(&scontextsBase[0]);
