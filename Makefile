@@ -1,9 +1,21 @@
-LIBS  = -lslog -lpthread -lm -lavcodec -lavfilter
+# libavcodec and libavfilter are needed for their headers at compile time, but
+# not one of their symbols is referenced, so the linker dropped them anyway.
+# Naming them here only misleads.
+LIBS  = -lslog -lpthread -lm
 DEBUG_LIBS = -lasan
 INCLUDES = -I src/includes -I /usr/include/x86_64-linux-gnu
 CFLAGS = -Wall -Wextra -std=c11 -fopenmp
 CRELEASEFLAGS = -O2 -march=native -floop-unroll-and-jam -fno-trapping-math
 CDEBUGFLAGS = -g3 -fsanitize=address -fno-trapping-math
+
+# `make static` produces a binary that runs anywhere, with libslog, glibc and
+# libgomp all linked in. -march=native is dropped on purpose: it targets the
+# CPU that happens to build the image, and a binary carrying instructions the
+# destination lacks dies with SIGILL, which defeats the point.
+ifdef STATIC
+CRELEASEFLAGS = -O2 -floop-unroll-and-jam -fno-trapping-math
+LINK_EXTRA = -static
+endif
 BUILD_DIR = build
 BIN_DIR = bin
 SRC_DIR = src
@@ -26,6 +38,12 @@ buildDirs:
 release:
 	@echo Building release
 	@$(MAKE) $(MAKEFILE) \
+		EXE_PATH="${BIN_DIR}/mpeg7Dupes.elf" link
+
+.PHONY: static
+static:
+	@echo Building static
+	@$(MAKE) $(MAKEFILE) STATIC="1" \
 		EXE_PATH="${BIN_DIR}/mpeg7Dupes.elf" link
 
 .PHONY: releaseWithSymbols
@@ -88,6 +106,10 @@ else
 ifdef SYMBOLS
 	$(CC) -g3 -o ${EXE_PATH} ${OBJS} ${CFLAGS} ${LIBS}
 else
-	$(CC) -o ${EXE_PATH} ${OBJS} ${CFLAGS} ${LIBS}
+	$(CC) -o ${EXE_PATH} ${OBJS} ${CFLAGS} ${LINK_EXTRA} ${LIBS}
+ifdef STATIC
+	@strip ${EXE_PATH}
+	@echo "Static binary: `ls -lh ${EXE_PATH} | awk '{print $$5}'`, no runtime dependencies"
+endif
 endif
 endif

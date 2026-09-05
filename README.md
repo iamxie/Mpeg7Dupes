@@ -28,6 +28,7 @@ the git log for the full list. Changes so far:
 - Every core is used by default; `-p` is gone and `-j` limits the count.
 - Builds against current slog rather than requiring the 2018 release.
 - Added a Dockerfile.
+- `make static` builds a binary with no runtime dependencies.
 
 The groundwork here is all upstream's. If this tool is useful to you, consider
 supporting its original author at
@@ -115,6 +116,37 @@ cd Mpeg7Dupes
 make release -l$(nproc)
 sudo cp bin/mpeg7Dupes.elf /usr/local/bin/mpeg7dupes
 ```
+
+### Standalone binary
+
+```sh
+make static -l$(nproc)
+```
+
+Produces a 1.3 MB binary with no runtime dependencies at all, which can be
+copied to a machine that has none of the build packages installed. Verified by
+running it inside a bare `busybox` container, which carries no glibc:
+
+```
+$ docker run --rm -v .:/data -w /data busybox ./mpeg7Dupes.elf -f csv -m full -i 0 a.bin b.bin
+First signature,Second signature,score,matchframes,goodframes,...
+a.bin,b.bin,1056,550,550,550,-26,1.000000,0.08,6.00,1.00,1
+```
+
+Only libslog, glibc and libgomp end up inside it. libavcodec and libavfilter
+are needed for their headers while compiling, but the binary never calls into
+them, so the linker discards both even in an ordinary build; `ldd` on a normal
+build lists only libc and libgomp.
+
+`make static` also drops `-march=native`, which the other targets keep. That
+flag emits instructions for whichever CPU built the binary, and a machine
+without them dies with SIGILL, so it has no business in something meant to be
+copied around. If you are staying on one machine, `make release` is the faster
+binary.
+
+The link prints a glibc warning about `dlopen` in statically linked
+applications. It comes from libgomp's OpenACC profiling hooks, which this
+program never reaches.
 
 ---
 
