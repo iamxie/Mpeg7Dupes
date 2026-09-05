@@ -1,0 +1,168 @@
+name: Nightly static build
+
+# Builds the standalone binary once a day, and skips the whole thing when the
+# commit has already been built. The guard checks whether a release tagged with
+# this commit exists rather than whether a commit landed in the last 24 hours,
+# so a missed or late run catches up instead of silently skipping, and a rerun
+# never produces a second release for the same code.
+#
+# Only schedule and workflow_dispatch trigger this, so no attacker-controlled
+# event payload reaches it. Expressions are still passed through env rather
+# than interpolated into shell, which is the habit worth keeping either way.
+
+on:
+  schedule:
+    - cron: '17 3 * * *'   # 03:17 UTC daily, off the hour to dodge scheduler congestion
+  workflow_dispatch:       # and on demand
+
+permissions:
+  contents: write          # needed to publish the release
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.check.outputs.build }}
+      tag: ${{ steps.check.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          tag="nightly-$(git rev-parse --short HEAD)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if gh release view "$tag" --repo "$REPO" >/dev/null 2>&1; then
+            echo "$tag already exists, nothing new to build"
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "building $tag"
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: guard
+    if: needs.guard.outputs.build == 'true'
+    strategy:
+      fail-fast: false     # one architecture failing should not take the other down
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: x86_64
+          # arm64 runners are free for public repositories. If this leg cannot
+          # find a runner, drop it and the x86_64 build still publishes.
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          # libavcodec-dev and libavfilter-dev are here for headers only; the
+          # binary references no symbol from either. ffmpeg is for the smoke test.
+          sudo apt-get install -y --no-install-recommends \
+            build-essential libavcodec-dev libavfilter-dev ffmpeg
+
+      - name: Build and install slog
+        run: |
+          git clone --depth 1 https://github.com/kala13x/slog /tmp/slog
+          cd /tmp/slog
+          echo "slog $(git rev-parse --short HEAD)"
+          make
+          sudo make install
+
+      - name: Build
+        run: make static -l"$(nproc)"
+
+      - name: Verify it is actually standalone
+        run: |
+          file bin/mpeg7Dupes.elf
+          # Require the message rather than rejecting anything unlike it, so a
+          # stray warning line on stderr cannot fail an otherwise static build.
+          if ! ldd bin/mpeg7Dupes.elf 2>&1 | grep -q 'not a dynamic executable'; then
+            echo "::error::binary is not statically linked"
+            ldd bin/mpeg7Dupes.elf
+            exit 1
+          fi
+
+      # A binary that compiles but does not work is worse than no binary, so
+      # run it against a duplicate pair it has to find.
+      - name: Smoke test
+        run: |
+          set -e
+          work="$(mktemp -d)"
+          cd "$work"
+          ffmpeg -v error -f lavfi -i 'mandelbrot=size=320x180:rate=25' -t 120 \
+            -c:v libx264 -preset ultrafast -pix_fmt yuv420p a.mp4
+          # b is a rescaled copy of a with five seconds cut from the head
+          ffmpeg -v error -ss 5 -t 110 -i a.mp4 -vf scale=240:136 \
+            -c:v libx264 -preset medium -crf 23 -pix_fmt yuv420p b.mp4
+          for f in a b; do
+            ffmpeg -v error -i "$f.mp4" -vf "fps=5,signature=filename=$f.bin" \
+              -map 0:v:0 -an -f null -
+          done
+          out="$("$GITHUB_WORKSPACE/bin/mpeg7Dupes.elf" -f csv -m full -i 0 a.bin b.bin 2>/dev/null)"
+          echo "$out"
+          # Header plus exactly one row, and it has to be a whole match
+          rows="$(echo "$out" | tail -n +2 | grep -c . || true)"
+          whole="$(echo "$out" | tail -n +2 | head -1 | awk -F, '{print $NF}')"
+          if [ "$rows" != "1" ] || [ "$whole" != "1" ]; then
+            echo "::error::expected exactly one whole match, got $rows row(s), whole=$whole"
+            exit 1
+          fi
+
+      - name: Stage the artefact
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p dist
+          cp bin/mpeg7Dupes.elf "dist/mpeg7dupes-linux-$ARCH"
+          cd dist
+          sha256sum "mpeg7dupes-linux-$ARCH" > "mpeg7dupes-linux-$ARCH.sha256"
+          ls -l
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mpeg7dupes-linux-${{ matrix.arch }}
+          path: dist/*
+          retention-days: 7
+
+  release:
+    needs: [guard, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ needs.guard.outputs.tag }}
+          SHA: ${{ github.sha }}
+        run: |
+          ls -l dist
+          cat > notes.md <<'EOF'
+          Statically linked build of the current `master`, with no runtime
+          dependencies. CI checks that it reports `not a dynamic executable`,
+          and smoke tests it against a rescaled and trimmed duplicate it has to
+          find.
+
+          Built without `-march=native`, so it runs on any CPU of the matching
+          architecture. `make release` gives a faster binary if you are staying
+          on one machine.
+
+          Remember to pass `-i 0`; see the README for why.
+          EOF
+          printf '\nCommit: %s\n' "$SHA" >> notes.md
+          gh release create "$TAG" dist/* \
+            --repo "$REPO" \
+            --title "$TAG" \
+            --notes-file notes.md \
+            --prerelease

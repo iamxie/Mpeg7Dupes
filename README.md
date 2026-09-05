@@ -124,6 +124,10 @@ sudo cp bin/mpeg7Dupes.elf /usr/local/bin/mpeg7dupes
 make static -l$(nproc)
 ```
 
+A build of the current `master` is published nightly; grab it from
+[Releases](https://github.com/iamxie/Mpeg7Dupes/releases) if you would rather
+not build one. To build it yourself:
+
 Produces a 1.3 MB binary with no runtime dependencies at all, which can be
 copied to a machine that has none of the build packages installed. Verified by
 running it inside a bare `busybox` container, which carries no glibc:
