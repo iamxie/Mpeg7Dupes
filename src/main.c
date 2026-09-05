@@ -30,7 +30,7 @@ main(int argc, char **argv) {
     if (!resultStream)
         resultStream = stdout;
 
-    slog_init("logfile", "slog.cfg", 5, 1);
+    slog_compat_init("logfile", 5, 1);
     initSession(&session, &args, &index);
 
 
@@ -84,7 +84,7 @@ main(int argc, char **argv) {
             logLevel = 7;
         if (__DEBUG)
             logLevel = 7;
-        slog_init("logfile", "slog.cfg", logLevel, 1);
+        slog_compat_init("logfile", logLevel, 1);
     }
 
     if (args.useOpenMp)

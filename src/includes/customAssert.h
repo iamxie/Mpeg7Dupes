@@ -3,7 +3,7 @@
 
 #include <stdarg.h>
 
-#include "slog.h"
+#include "slog_compat.h"
 
 // 0    panic
 // 1    fatal

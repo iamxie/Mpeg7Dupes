@@ -13,7 +13,7 @@
 #include "signature.h"
 
 // Libraries
-#include "slog.h"
+#include "slog_compat.h"
 
 // Custom headers
 #include "utils.h"

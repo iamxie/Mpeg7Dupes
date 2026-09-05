@@ -8,7 +8,7 @@
 #include <stdio.h>
 #include <argp.h>
 
-#include "slog.h"
+#include "slog_compat.h"
 #include "customAssert.h"
 #include "signature.h"
 #include "utils.h"

@@ -22,7 +22,7 @@
 
 // custom headers
 #include "debug.h"
-#include "slog.h"
+#include "slog_compat.h"
 #include "customAssert.h"
 #include "printers.h"
 #include "ArgumentParsing.h"

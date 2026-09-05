@@ -66,7 +66,7 @@ loadSession(struct arguments* args, struct fileIndex* index,
 void
 deleteSession(char *sessionPath){
     if(!remove(sessionPath))
-        slog_error(2, "Error deleting file")
+        slog_error(2, "Error deleting file");
     else
         slog_info(4, "File successfully deleted");
 }

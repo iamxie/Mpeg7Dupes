@@ -28,7 +28,7 @@
 #include "signature.h"
 
 // custom headers
-#include "slog.h"
+#include "slog_compat.h"
 #include "customAssert.h"
 
 

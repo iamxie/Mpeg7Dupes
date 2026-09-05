@@ -25,13 +25,24 @@ not this fork.
 AGPL-3.0, unchanged from upstream. See [LICENSE](LICENSE).
 
 # Installation
-## Ubuntu (19.10)
-### Install [slog](https://github.com/kala13x/slog)
-### Install necessary packages
+## Debian / Ubuntu
+### Install the packages
 ```
-sudo apt-get install build-essential libavcodec-dev libavfilter-dev
+sudo apt-get install build-essential git libavcodec-dev libavfilter-dev
 ```
 **YOUR GCC VERSION MUST SUPPORT OPENMP FOR CSV MODE**
+
+### Install [slog](https://github.com/kala13x/slog)
+```
+git clone https://github.com/kala13x/slog
+cd slog
+make
+sudo make install
+```
+Current slog works. Upstream vendored slog 1.6.2's header and needed the library
+checked out at that 2018 tag, so building against a fresh clone of slog failed
+with `undefined reference to 'slog'`; `src/includes/slog_compat.h` now bridges
+the two APIs. Verified against slog 1.9.49.
 
 ### Compile Mpeg7Dupes
 ```

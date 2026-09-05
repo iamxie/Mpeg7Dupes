@@ -34,7 +34,7 @@
 #include "avfilter.h"
 #include "internal.h"
 
-#include "slog.h"
+#include "slog_compat.h"
 
 #define ELEMENT_COUNT 10
 #define SIGELEM_SIZE 380
