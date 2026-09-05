@@ -22,7 +22,8 @@ the git log for the full list. Changes so far:
 - Fixed OpenMP misuse that serialised the whole comparison loop, so it now
   actually uses every core.
 - Log output goes to stderr, leaving stdout for results only.
-- CSV gained `matchframes`, `offset`, `framerateratio` and `meandist` columns.
+- CSV gained `matchframes`, `goodframes`, `totalframes`, `offset`,
+  `framerateratio` and `meandist` columns.
 - `-v` is cumulative rather than an on/off switch, and progress is reported
   while comparing.
 - Every core is used by default; `-p` is gone and `-j` limits the count.
@@ -79,8 +80,8 @@ m7d mpeg7dupes -l siglist.txt -f csv -m full -i 0 -v > dupes.csv 2> run.log
 clips, one of which was a rescaled and trimmed copy of another:
 
 ```
-First signature,Second signature,score,matchframes,offset,framerateratio,meandist,time 1 [s],time 2 [s],whole
-sig/original.bin,sig/reupload.bin,1056,450,-26,1.000000,0.08,6.00,1.00,1
+First signature,Second signature,score,matchframes,goodframes,totalframes,offset,framerateratio,meandist,time 1 [s],time 2 [s],whole
+sig/original.bin,sig/reupload.bin,1056,450,450,450,-26,1.000000,0.08,6.00,1.00,1
 ```
 
 ## Installing without Docker
@@ -220,6 +221,7 @@ at any verbosity.
 | --- | --- |
 | `score` | Hough accumulator votes for the winning alignment |
 | `matchframes` | How many fingerprints matched |
+| `goodframes`, `totalframes` | Numerator and denominator of the `--thIt` test. Their ratio is what `--thIt` is compared against, so any stricter `--thIt` can be applied to a finished CSV instead of running again |
 | `offset` | Alignment between the two clips, in fingerprints. Divide by your `fps` for seconds |
 | `framerateratio` | Detected second/first rate ratio. 1.0 for a real match |
 | `meandist` | Mean distance for the match, lower is closer |
@@ -229,7 +231,7 @@ at any verbosity.
 Reading the example above, with signatures sampled at 5 fps:
 
 ```
-sig/original.bin,sig/reupload.bin,1056,450,-26,1.000000,0.08,6.00,1.00,1
+sig/original.bin,sig/reupload.bin,1056,450,450,450,-26,1.000000,0.08,6.00,1.00,1
 ```
 
 `matchframes` 450 against a 450-fingerprint signature and `whole` 1 mean the
