@@ -1,0 +1,14 @@
+# Build artefacts; the image compiles from source inside the build stage.
+build/
+bin/
+
+.git/
+.gitignore
+.ycm_extra_conf.py
+_vimrc_local.vim
+
+Dockerfile
+.dockerignore
+README.md
+todo.md
+LICENSE
