@@ -1,9 +1,11 @@
 #include "printers.h"
 
+FILE *resultStream = NULL;
+
 void
 printBeautifulHeader () {
     char strBuffer[170] = { 0 };
-    printf("%46.46s %46.46s %9.9s %12.12s %12.12s %5.5s\n",
+    fprintf(resultStream, "%46.46s %46.46s %9.9s %12.12s %12.12s %5.5s\n",
         padStr("First signature", strBuffer, 40, ' '),
         padStr("Second signature",  &strBuffer[40], 51, ' '),
         padStr("score",  &strBuffer[91], 9, ' '),
@@ -43,7 +45,7 @@ printBeautiful(MatchingInfo *info, StreamContext* sc, char *file1,\
             selectedFormatStr = 3;
         }
 
-        printf(formatStrings[selectedFormatStr], firstFilePath, file2, info->score,\
+        fprintf(resultStream, formatStrings[selectedFormatStr], firstFilePath, file2, info->score,\
                 ((double) info->first->pts * sc[0].time_base.num) / sc[0].time_base.den,
                 ((double) info->second->pts * sc[1].time_base.num) / sc[1].time_base.den,
                 info->whole);
@@ -53,7 +55,7 @@ printBeautiful(MatchingInfo *info, StreamContext* sc, char *file1,\
 // TO update with new offsets
 void
 printCSVHeader () {
-    printf("%s,%s,%s,%s,%s,%s\n", "First signature", "Second signature",\
+    fprintf(resultStream, "%s,%s,%s,%s,%s,%s\n", "First signature", "Second signature",\
         "score", "time 1 [s]", "time 2 [s]", "whole");
 }
 
@@ -61,7 +63,7 @@ void
 printCSV(MatchingInfo *info, StreamContext* sc, char *file1, char *file2,\
     int isFirst, int isLast, int isMoreThanOne) {
     if (info->score)
-        printf("%s,%s,%d,%.2f,%.2f,%d\n",
+        fprintf(resultStream, "%s,%s,%d,%.2f,%.2f,%d\n",
                 file1, file2,
                 info->score,
                 // pts is the frame number

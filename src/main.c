@@ -12,6 +12,23 @@ main(int argc, char **argv) {
         char *file1, char *file2, int isFirst, int isLast, int isMoreThanOne)\
         = printBeautiful;
 
+    /* slog writes with printf and offers no way to retarget it, so results and
+       log lines both landed on stdout and `> out.csv` captured a mix of the two.
+       Keep a duplicate of the real stdout for results, then point fd 1 at
+       stderr. Every printf after this, slog's included and the Ctrl+C session
+       prompt among them, goes to stderr; results go through resultStream. */
+    {
+        int savedStdout = dup(STDOUT_FILENO);
+        if (savedStdout >= 0) {
+            resultStream = fdopen(savedStdout, "w");
+            if (resultStream) {
+                setvbuf(resultStream, NULL, _IOLBF, 0);
+                dup2(STDERR_FILENO, STDOUT_FILENO);
+            }
+        }
+    }
+    if (!resultStream)
+        resultStream = stdout;
 
     slog_init("logfile", "slog.cfg", 5, 1);
     initSession(&session, &args, &index);
@@ -139,7 +156,7 @@ processFiles(struct fileIndex *index, void (*printFunctionPointer)
                 printFunctionPointer);
 
             signature_unload(&scontexts[1]);
-            fflush(stdout);
+            fflush(resultStream);
 
         }
         signature_unload(&scontextsBase[0]);
