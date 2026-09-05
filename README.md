@@ -29,7 +29,8 @@ the git log for the full list. Changes so far:
 - Every core is used by default; `-p` is gone and `-j` limits the count.
 - Builds against current slog rather than requiring the 2018 release.
 - Added a Dockerfile.
-- `make static` builds a binary with no runtime dependencies.
+- `make static` builds a binary with no runtime dependencies, and one is
+  published nightly for x86_64 and aarch64.
 
 The groundwork here is all upstream's. If this tool is useful to you, consider
 supporting its original author at
@@ -120,15 +121,17 @@ sudo cp bin/mpeg7Dupes.elf /usr/local/bin/mpeg7dupes
 
 ### Standalone binary
 
+One is built from `master` every night for x86_64 and aarch64. If you would
+rather not build your own, take it from
+[Releases](https://github.com/iamxie/Mpeg7Dupes/releases).
+
+To build one:
+
 ```sh
 make static -l$(nproc)
 ```
 
-A build of the current `master` is published nightly; grab it from
-[Releases](https://github.com/iamxie/Mpeg7Dupes/releases) if you would rather
-not build one. To build it yourself:
-
-Produces a 1.3 MB binary with no runtime dependencies at all, which can be
+That gives a 1.3 MB binary with no runtime dependencies at all, which can be
 copied to a machine that has none of the build packages installed. Verified by
 running it inside a bare `busybox` container, which carries no glibc:
 
