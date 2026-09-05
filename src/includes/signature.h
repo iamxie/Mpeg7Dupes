@@ -96,6 +96,10 @@ typedef struct MatchingInfo {
     int score;
     int offset;
     int matchframes; /* number of matching frames */
+    /* Numerator and denominator of the thIt test. Exporting them lets a caller
+       apply any thIt after the fact instead of re-running the comparison. */
+    int goodframes;
+    int totalframes;
     int whole;
     struct FineSignature* first;
     struct FineSignature* second;

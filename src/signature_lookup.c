@@ -554,6 +554,8 @@ evaluate_parameters(
             /* bestcandidate in this iteration */
             bestmatch.meandist = meandist;
             bestmatch.matchframes = bcount;
+            bestmatch.goodframes = goodfcount;
+            bestmatch.totalframes = fcount;
             bestmatch.framerateratio = infos->framerateratio;
             bestmatch.score = infos->score;
             bestmatch.offset = infos->offset;
