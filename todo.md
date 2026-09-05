@@ -3,11 +3,11 @@
 ## Inherited from upstream
 - [ ] Fix broken hough transform
 
-      Still the weakest part of the tool. The accumulator produces `score` and
-      `framerateratio`, and it readily reports matches between unrelated clips
-      with a `framerateratio` of 0.03 or similar, which is not a plausible
-      alignment. Filtering the CSV on `framerateratio` near 1.0 and on
-      `matchframes` well above `--thDi` works around it, but does not fix it.
+      Still the weakest part of the tool, and the cause of the `--thDi` bug
+      below. With `--thDi 0` the accumulator behaves: a clip matches itself with
+      `matchframes` equal to its own frame count, real duplicates come back with
+      `framerateratio` 1.0 and the correct frame offset, and unrelated clips are
+      rejected. Every non-zero `--thDi` breaks all of that at once.
 
 - [ ] Verify that the signature generation code is valid
 
@@ -41,9 +41,25 @@
       parallel, so the tree is drawn wrong. `-f csv` is unaffected. Either
       buffer the rows and group them at the end, or drop the tree.
 
-- [ ] Reconsider the default thresholds
+- [ ] Fix `--thDi` / `-i`, or default it to 0
 
-      `--thDi` defaults to 300 frames of continuous match. For signatures
-      sampled at 5 fps that is a full minute, so anything shorter is silently
-      never reported. The right default depends on the sampling rate the
-      signatures were generated at, which the tool does not know.
+      Documented as the minimum length in frames a matching sequence must have.
+      Any non-zero value corrupts the result instead of filtering it, and the
+      built-in default is 300.
+
+      Measured on six 100-second clips sampled at 5 fps, two of them genuine
+      duplicates of two others, downscaled and trimmed five seconds at each end:
+
+      | `-i` | clip vs itself | the two real duplicates | false positives |
+      | --- | --- | --- | --- |
+      | 0   | found, 500 of 500 frames, ratio 1.0, whole 1 | both found, ratio 1.0, whole 1 | none |
+      | 100 | not found | one found at ratio 0.53, one missed | 3 |
+      | 300 | not found | found, ratio 1.0, whole 0 | - |
+
+      `matchframes` returns exactly `-i` whenever `-i` is non-zero: 50 for
+      `-i 50`, 200 for `-i 200`. It reports the threshold rather than a count,
+      and `framerateratio` and `meandist` go wrong with it. A clip failing to
+      match itself is the clearest symptom.
+
+      Until the lookup code is fixed, `-i 0` is the only usable setting, and the
+      README says so.

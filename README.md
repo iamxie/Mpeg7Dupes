@@ -76,25 +76,51 @@ And then launch mpeg7Dupes
 Results go to stdout and log output to stderr, so redirecting gives a clean file
 at any verbosity:
 ```
-./bin/mpeg7Dupes.elf -l list_of_files -f csv -p -vv > dupes.csv 2> run.log
+./bin/mpeg7Dupes.elf -l list_of_files -f csv -p -m full -i 0 -v > dupes.csv 2> run.log
 ```
+**Pass `-i 0`.** Any other value produces unusable output; see the warning below.
+
 The columns are:
 
 | Column | Meaning |
 | --- | --- |
 | `score` | Hough accumulator votes for the winning alignment |
-| `matchframes` | How many frames actually matched |
+| `matchframes` | How many frames matched, with `-i 0`. See the warning below |
 | `offset` | Alignment between the two clips, in frames |
-| `framerateratio` | Detected second/first rate ratio; far from 1.0 means the alignment was fabricated |
+| `framerateratio` | Detected second/first rate ratio. 1.0 for a real match |
 | `meandist` | Mean distance for the match, lower is closer |
 | `time 1 [s]`, `time 2 [s]` | Where the match starts in each clip |
 | `whole` | 1 when the whole clip matches |
 
-`score` alone does not separate real duplicates from noise. Filter on the other
-columns as well, for example:
+### Warning: `--thDi` / `-i` is broken, use `-i 0`
+
+`-i` is documented as the minimum length in frames a matching sequence must
+have. Any non-zero value, including the built-in default of 300, corrupts the
+result rather than filtering it. Measured on six 100-second clips sampled at
+5 fps, two of which were genuine duplicates of two others (downscaled and
+trimmed by five seconds at each end):
+
+| `-i` | Clip against itself | The two real duplicates | False positives |
+| --- | --- | --- | --- |
+| `0` | found, `matchframes` 500 of 500, ratio 1.0, `whole` 1 | both found, ratio 1.0, `whole` 1 | none |
+| `100` | not found | one found with ratio 0.53, one missed | 3 |
+| `300` | not found | found, ratio 1.0, `whole` 0 | — |
+
+`matchframes` comes back equal to `-i` whenever `-i` is non-zero: 50 for `-i 50`,
+200 for `-i 200`, and so on. It reports the threshold rather than a count, and
+`framerateratio` and `meandist` are corrupted alongside it. A clip failing to
+match itself is the clearest symptom.
+
+With `-i 0` the numbers are sound and no post-filtering is needed:
 ```
-awk -F, 'NR==1 || ($6 > 0.9 && $6 < 1.1 && $4 > 300)' dupes.csv
+B1.bin,B2.bin,1056,450,-26,1.000000,0.05,11.40,6.40,1
+A1.bin,A2.bin,1056,450,-26,1.000000,0.08,6.00,1.00,1
 ```
+450 is the real frame count of the trimmed clips, and -26 frames is the five
+seconds removed from the head. Only the two genuine pairs are reported.
+
+This sits in the lookup code inherited from upstream, which already lists
+"Fix broken hough transform" in `todo.md`. It has not been fixed here.
 
 ## Verbosity
 `-v` is cumulative:
