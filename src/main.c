@@ -87,8 +87,22 @@ main(int argc, char **argv) {
         slog_compat_init("logfile", logLevel, 1);
     }
 
-    if (args.useOpenMp)
-        slog_info(4, "Using %d threads", omp_get_max_threads());
+    /* Every core unless -j says otherwise. Asking for more cores than the
+       machine has is a mistake worth pointing out rather than silently
+       honouring, since oversubscribing only adds scheduling overhead. */
+    {
+        int availableJobs = omp_get_num_procs();
+        int jobs = args.jobs > 0 ? args.jobs : availableJobs;
+
+        if (jobs > availableJobs) {
+            slog_warn(3, "Requested %d jobs but this machine has %d cores, "
+                "using %d", args.jobs, availableJobs, availableJobs);
+            jobs = availableJobs;
+        }
+
+        omp_set_num_threads(jobs);
+        slog_info(4, "Using %d of %d cores", jobs, availableJobs);
+    }
 
     if (args.outputFormat == CSV) {
         printCSVHeader();
@@ -98,7 +112,7 @@ main(int argc, char **argv) {
         printFunctionPointer = printBeautiful;
     }
 
-    processFiles(&index, printFunctionPointer, args.useOpenMp);
+    processFiles(&index, printFunctionPointer);
     terminateFileIterator(&index);
 
     if (args.sessionFile)
@@ -112,7 +126,7 @@ main(int argc, char **argv) {
 void
 processFiles(struct fileIndex *index, void (*printFunctionPointer)
     (MatchingInfo *info, StreamContext* sc, char *file1, char *file2, \
-     int isFirst, int isLast, int isMoreThanOne), int useOpenMp) {
+     int isFirst, int isLast, int isMoreThanOne)) {
 
     /* Total pairs is the sum of each outer iteration's inner trip count. For the
        usual case (indexA = -1, maxIndexA = maxIndexB = N) that is N*(N-1)/2, and
@@ -146,7 +160,7 @@ processFiles(struct fileIndex *index, void (*printFunctionPointer)
        so utilisation collapsed at the end of every wave. Driving the outer loop
        instead forks once for the whole run: a thread that finishes one i picks
        up the next immediately, with no synchronisation in between. */
-    #pragma omp parallel for schedule(dynamic) if(useOpenMp)
+    #pragma omp parallel for schedule(dynamic)
     for (int i = index->indexA + 1; i < index->maxIndexA; ++i) {
         StreamContext scontextsBase[NUM_OF_INPUTS] = { 0 };
         char *file1 = &index->pathsMatrix[i*MAX_PATH_LENGTH];

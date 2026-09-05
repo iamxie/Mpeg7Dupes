@@ -22,7 +22,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
     // value
     switch (key) {
         case 'v': ++arguments->verbose; break;
-        case 'p': arguments->useOpenMp  = 1; break;
+        case 'j': if (arg) arguments->jobs = atoi(arg); break;
         case 'm': if (arg) arguments->mode  = numberForKey(arg); break;
         case 't': if (arg) arguments->sigType  = numberForKey(arg); break;
         case 'd': if (arg) arguments->thD  = atof(arg); break;
@@ -53,7 +53,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
             arguments->thDi = 300;
             arguments->thIt = 0.5;
             arguments->numberOfPaths = 0;
-            arguments->useOpenMp = 0;
+            arguments->jobs = 0;
             arguments->filePaths = NULL;
             arguments->minScore = 49;
             break;
@@ -77,6 +77,10 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
                 "Minimum relation must be between 0 and 1");
             LoggedAssert(arguments->minScore > 0,\
                 "Minimum score must be >0");
+            /* Clamping to the number of cores happens in main, which is where
+               omp_get_num_procs is available. */
+            LoggedAssert(arguments->jobs >= 0,\
+                "Job count must not be negative; omit -j to use every core");
             LoggedAssert(arguments->outputFormat == BEAUTIFUL ||
                 arguments->outputFormat == CSV,\
                 "Output format not supported");
@@ -138,7 +142,8 @@ parseArguments(int argc, char **argv) {
         { "verbosity", 'v', 0, 0, "Increase output verbosity, repeat for more "
             "detail. -v reports progress, -vv adds per-pair detail, -vvv dumps "
             "every frame"},
-        { "multithread", 'p', 0, OPTION_ARG_OPTIONAL, "Enable multithreaded processing"},
+        { "jobs", 'j', "{count}", 0, "Number of cores to use. Defaults to every "
+            "core on the machine. A count above that is reduced to it"},
         { "lookup_mode", 'm', "{fast,full}", 0, "Calculate the matching for "
             "the whole video and output whether the whole video matches or "
             "only parts, or Calculate only until a matching is found or the "

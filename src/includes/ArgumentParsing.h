@@ -36,7 +36,8 @@ struct arguments {
 	double thD, thDc, thXh, thDi, thIt, minScore;
     char **filePaths;
     unsigned int numberOfPaths;
-    int useOpenMp;
+    /* 0 means every core; -j sets an explicit count. */
+    int jobs;
 };
 
 // https://stackoverflow.com/questions/6669842/how-to-best-achieve-string-

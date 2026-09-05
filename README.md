@@ -25,6 +25,7 @@ the git log for the full list. Changes so far:
 - CSV gained `matchframes`, `offset`, `framerateratio` and `meandist` columns.
 - `-v` is cumulative rather than an on/off switch, and progress is reported
   while comparing.
+- Every core is used by default; `-p` is gone and `-j` limits the count.
 - Builds against current slog rather than requiring the 2018 release.
 - Added a Dockerfile.
 
@@ -70,7 +71,7 @@ done'
 
 m7d bash -c 'find sig -name "*.bin" | sort > siglist.txt'
 
-m7d mpeg7dupes -l siglist.txt -f csv -p -m full -i 0 -v > dupes.csv 2> run.log
+m7d mpeg7dupes -l siglist.txt -f csv -m full -i 0 -v > dupes.csv 2> run.log
 ```
 
 `dupes.csv` holds the results and `run.log` the progress. A run over three
@@ -89,7 +90,7 @@ sig/original.bin,sig/reupload.bin,1056,450,-26,1.000000,0.08,6.00,1.00,1
 sudo apt-get install build-essential git libavcodec-dev libavfilter-dev ffmpeg
 ```
 
-**Your GCC must support OpenMP**, otherwise `-p` does nothing.
+**Your GCC must support OpenMP**, otherwise the comparison runs on one core.
 
 ### slog
 
@@ -169,11 +170,12 @@ Or a list, one path per line:
 
 ```sh
 find sig -name '*.bin' | sort > siglist.txt
-mpeg7dupes -l siglist.txt -f csv -p -m full -i 0 -v > dupes.csv 2> run.log
+mpeg7dupes -l siglist.txt -f csv -m full -i 0 -v > dupes.csv 2> run.log
 ```
 
 Every pair in the list is compared, so the work grows as n²/2: 600 signatures
-means 179,700 comparisons. `-p` spreads that across every core.
+means 179,700 comparisons. That is spread across every core by default; `-j`
+limits it to fewer.
 
 Results go to stdout and log output to stderr, so redirecting gives a clean CSV
 at any verbosity.
@@ -219,7 +221,14 @@ stopped being true when the comparison loop became parallel. Use `-f csv`.
 
 ## Long runs
 
-**Threads.** `-p` enables OpenMP. Without it everything runs on one core.
+**Threads.** Every core is used by default. `-j N` limits the run to N of them,
+which is worth doing when the machine has other work to get on with. Asking for
+more cores than exist logs a warning and uses what there is.
+
+```
+2026.09.05-19:40:35.335 <warn> Requested 999 jobs but this machine has 8 cores, using 8
+2026.09.05-19:40:35.335 <info> Using 8 of 8 cores
+```
 
 **Progress.** `-v` reports every 1% along with a rate and an ETA:
 
@@ -243,7 +252,7 @@ outer iteration, so it repeats some pairs rather than skipping any.
 the first list, skipping pairs already covered:
 
 ```sh
-mpeg7dupes -l old.txt -n new.txt -f csv -p -m full -i 0 > new_dupes.csv
+mpeg7dupes -l old.txt -n new.txt -f csv -m full -i 0 > new_dupes.csv
 ```
 
 ## Options
@@ -254,7 +263,7 @@ mpeg7dupes -l old.txt -n new.txt -f csv -p -m full -i 0 > new_dupes.csv
 | `-n`, `--incremental_file_list` | | Compare this list against itself and against `-l` |
 | `-s`, `--session_file` | | Resume an interrupted run; the file must exist |
 | `-f`, `--output_format` | `beautiful` | `csv` or `beautiful`. Use `csv` |
-| `-p`, `--multithread` | off | Use every core |
+| `-j`, `--jobs` | every core | Limit the run to this many cores |
 | `-v`, `--verbosity` | | Repeatable, see below |
 | `-m`, `--lookup_mode` | `fast` | `fast` stops at the first match, `full` evaluates the whole clip |
 | `-i`, `--thDi` | 300 | Minimum matching sequence length. **Set this to 0** |

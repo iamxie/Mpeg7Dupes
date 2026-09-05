@@ -40,7 +40,7 @@ SEGVhandler(int);
 void
 processFiles(struct fileIndex *index, void (*printFunctionPointer)
     (MatchingInfo *info, StreamContext* sc, char *file1, char *file2, \
-     int isFirst, int isLast, int isMoreThanOne), int useOpenMp);
+     int isFirst, int isLast, int isMoreThanOne));
 
 void
 processFilePair(struct fileIndex *index, void (*printFunctionPointer)
