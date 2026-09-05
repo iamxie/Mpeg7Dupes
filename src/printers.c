@@ -3,7 +3,6 @@
 void
 printBeautifulHeader () {
     char strBuffer[170] = { 0 };
-    #pragma omp ordered
     printf("%46.46s %46.46s %9.9s %12.12s %12.12s %5.5s\n",
         padStr("First signature", strBuffer, 40, ' '),
         padStr("Second signature",  &strBuffer[40], 51, ' '),
@@ -28,7 +27,6 @@ printBeautiful(MatchingInfo *info, StreamContext* sc, char *file1,\
         "%-46.46s \u2523 %-46.46s %7d %12.2f %12.2f %1d\n"
     };
 
-    #pragma omp ordered
     if (info->score) {
         if (isFirst) {
             if (isMoreThanOne) {
@@ -55,7 +53,6 @@ printBeautiful(MatchingInfo *info, StreamContext* sc, char *file1,\
 // TO update with new offsets
 void
 printCSVHeader () {
-    #pragma omp ordered
     printf("%s,%s,%s,%s,%s,%s\n", "First signature", "Second signature",\
         "score", "time 1 [s]", "time 2 [s]", "whole");
 }
@@ -63,7 +60,6 @@ printCSVHeader () {
 void
 printCSV(MatchingInfo *info, StreamContext* sc, char *file1, char *file2,\
     int isFirst, int isLast, int isMoreThanOne) {
-    #pragma omp ordered
     if (info->score)
         printf("%s,%s,%d,%.2f,%.2f,%d\n",
                 file1, file2,
@@ -76,7 +72,6 @@ printCSV(MatchingInfo *info, StreamContext* sc, char *file1, char *file2,\
 
 void
 printFineSigList(FineSignature *list, FineSignature *end, int lastCoarse) {
-    #pragma omp ordered
     for (FineSignature *i = list; i != end && i; i = i->next) {
         if (lastCoarse) {
             if (i->next != end) {
@@ -106,7 +101,6 @@ printFineSigList(FineSignature *list, FineSignature *end, int lastCoarse) {
 
 void
 printCoarseSigList(CoarseSignature *list) {
-    #pragma omp ordered
     for (CoarseSignature *j = list; j->next ; j = j->next) {
         if (j->next->next) {
             slog_debug(6,"\u2523\u2533 Coarse signature at %p", j);
@@ -135,7 +129,6 @@ printCoarseSigList(CoarseSignature *list) {
 
 void
 printStreamContext(StreamContext* sc) {
-    #pragma omp ordered
     {
         slog_debug(6,"\u250F Time base: %d/%d", sc->time_base.num,\
                 sc->time_base.den);
@@ -166,7 +159,7 @@ printResult(
     static int hasFirstBeenPrinted = 0;
 
 
-    #pragma omp ordered
+    #pragma omp critical
     {
         Assert(index);
         Assert(result);

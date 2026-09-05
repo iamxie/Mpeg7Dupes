@@ -85,23 +85,26 @@ processFiles(struct fileIndex *index, void (*printFunctionPointer)
     (MatchingInfo *info, StreamContext* sc, char *file1, char *file2, \
      int isFirst, int isLast, int isMoreThanOne), int useOpenMp) {
 
+    /* Session-resume bookkeeping. Now that the outer loop runs in parallel the
+       iterations no longer complete in increasing order, so only advance the
+       saved index once every outer iteration below it has finished. Resuming
+       then repeats work at worst, and never skips a pair. */
+    char *outerDone = calloc((size_t) index->maxIndexA, 1);
+    int firstIncomplete = index->indexA + 1;
+
+    /* Parallelise the outer loop, not the inner one.
+       Parallelising the inner loop forked and joined once per outer iteration,
+       and its implicit barrier made finished threads wait for the slowest one,
+       so utilisation collapsed at the end of every wave. Driving the outer loop
+       instead forks once for the whole run: a thread that finishes one i picks
+       up the next immediately, with no synchronisation in between. */
+    #pragma omp parallel for schedule(dynamic) if(useOpenMp)
     for (int i = index->indexA + 1; i < index->maxIndexA; ++i) {
         StreamContext scontextsBase[NUM_OF_INPUTS] = { 0 };
         char *file1 = &index->pathsMatrix[i*MAX_PATH_LENGTH];
         binary_import(&scontextsBase[0], file1);
 
-        // Used for session saving
-        index->indexA = i - 1;
-        index->indexB = i;
-
-
-        #pragma omp parallel for ordered schedule(dynamic) if(useOpenMp)
-        for (int j = index->indexB + 1; j < index->maxIndexB; ++j) {
-
-            // Used for session saving
-            #pragma omp ordered
-            index->indexB = j - 1;
-
+        for (int j = i + 1; j < index->maxIndexB; ++j) {
 
             struct fileIndex tmpIndex = {
                 .indexA = i,
@@ -140,7 +143,22 @@ processFiles(struct fileIndex *index, void (*printFunctionPointer)
 
         }
         signature_unload(&scontextsBase[0]);
+
+        /* Named so it cannot collide with the unnamed critical in printResult. */
+        #pragma omp critical (outerProgress)
+        {
+            if (outerDone) {
+                outerDone[i] = 1;
+                while (firstIncomplete < index->maxIndexA
+                        && outerDone[firstIncomplete])
+                    ++firstIncomplete;
+                index->indexA = firstIncomplete - 1;
+                index->indexB = firstIncomplete;
+            }
+        }
     }
+
+    free(outerDone);
 }
 
 // This function processes the signatures by using index as an iterator
