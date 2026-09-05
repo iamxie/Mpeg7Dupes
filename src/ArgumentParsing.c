@@ -135,7 +135,9 @@ parseArguments(int argc, char **argv) {
         " similar videos";
     char args_doc[] = "[FILE1] [FILE2] ...";
     struct argp_option options[] = {
-        { "verbosity", 'v', "{1..7}", 0, "Increase output verbosity"},
+        { "verbosity", 'v', 0, 0, "Increase output verbosity, repeat for more "
+            "detail. -v reports progress, -vv adds per-pair detail, -vvv dumps "
+            "every frame"},
         { "multithread", 'p', 0, OPTION_ARG_OPTIONAL, "Enable multithreaded processing"},
         { "lookup_mode", 'm', "{fast,full}", 0, "Calculate the matching for "
             "the whole video and output whether the whole video matches or "
