@@ -30,6 +30,23 @@
 
 #include <slog.h>
 
+/* Stop here rather than partway through the first source file. Built against
+ * slog 1.6 this header collides with the macros that version defines and then
+ * calls slog_display, which does not exist there, and the compiler reports
+ * that as a wall of redefinition warnings followed by an implicit declaration
+ * a hundred lines later. Neither says which slog is installed.
+ *
+ * A machine that built this project before the switch to current slog still
+ * has 1.6 in /usr/local, which is exactly where this bites. */
+#if !defined(SLOG_VERSION_MAJOR) || !defined(SLOG_VERSION_MINOR) \
+    || SLOG_VERSION_MAJOR < 1 \
+    || (SLOG_VERSION_MAJOR == 1 && SLOG_VERSION_MINOR < 9)
+#error "slog 1.9 or newer is required. The header found is older, most likely \
+left in /usr/local by an earlier build. Reinstall it: \
+git clone --depth 1 https://github.com/kala13x/slog /tmp/slog && \
+cd /tmp/slog && make && sudo make install"
+#endif
+
 /* Current slog defines these as level-less macros. Take the names over. */
 #undef slog
 #undef slog_note

@@ -17,7 +17,7 @@
  * costs nothing, and being wrong about which build made a result costs a rerun.
  */
 #define MPEG7DUPES_VERSION "0.1"
-#define MPEG7DUPES_BUILD 1
+#define MPEG7DUPES_BUILD 2
 
 /* Two levels, because a macro argument is only expanded before stringifying if
  * it passes through a second macro first. One level would give "b

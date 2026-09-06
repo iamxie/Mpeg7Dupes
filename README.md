@@ -104,11 +104,20 @@ make
 sudo make install
 ```
 
-Current slog works. Upstream vendored slog 1.6.2's header and needed the library
-checked out at that 2018 tag, so building against a fresh clone failed with
-`undefined reference to 'slog'`, and `make` at the root of that tag failed too
-because its Makefile lives in `src/`. `src/includes/slog_compat.h` now bridges
-the two APIs. Verified against slog 1.9.49.
+Current slog works, and 1.9 or newer is required. Upstream vendored slog 1.6.2's
+header and needed the library checked out at that 2018 tag, so building against
+a fresh clone failed with `undefined reference to 'slog'`, and `make` at the
+root of that tag failed too because its Makefile lives in `src/`.
+`src/includes/slog_compat.h` now bridges the two APIs. Verified against 1.9.49.
+
+A machine that built this project before that switch still has 1.6 in
+`/usr/local`, and installing over it is the fix. The build stops with one line
+saying so rather than letting the mismatch surface a hundred lines later as an
+implicit declaration of `slog_display`. To check what is installed:
+
+```sh
+grep SLOG_VERSION_MINOR /usr/local/include/slog.h
+```
 
 ### Build
 
