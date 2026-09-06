@@ -88,3 +88,43 @@
 
       Fixing it means either continuing the search after a whole match and
       keeping the longest, or scoring candidates before accepting one.
+
+- [ ] Decide which search mode should be the default
+
+      `full` stops as soon as a candidate reaches both ends. `longest` ranks
+      candidates by matched frames and does not stop early. Which one belongs
+      as the default is a question about real libraries, not about the
+      fixtures, so it is being measured rather than argued.
+
+      What is already known. On the checked-in fixtures the two disagree on one
+      pair, and `longest` is right: for a clip made of a twelve second extract
+      followed by ten seconds of something else, `full` reports the extract at
+      18.40 to 29.80 of the original with `whole` 1 and a score of 8, and
+      `longest` reports 9.00 to 20.80, which is where it is. `tests/run.sh`
+      pins both. What is not known is the cost, since a genuine duplicate no
+      longer short circuits, and whether `longest` gives anything back on
+      material that `full` already handles.
+
+      The measurement. 96 videos built from 6 sources by 8 manipulations, so
+      4560 pairs a run, signatures at 5 fps, ground truth from the filenames.
+      Sweep `-x` over 60, 90, 116, 150, 200, 250, 290, 350 and 450 against both
+      modes: 18 runs, about 33 minutes each on 8 cores. Every run uses `-i 0`,
+      and `-b 0.1 -k 1` so that nothing is filtered during the comparison and
+      thIt, minScore and coverage can all be swept afterwards over one CSV.
+
+      `-m fast` is not in the sweep. It takes the first candidate that
+      qualifies where `full` at least chooses between them, and in every pilot
+      it was equal to `full` or worse.
+
+      What each run has to answer, per manipulation and not in aggregate: how
+      many real duplicates are found, how many pairs that merely share an
+      advertisement are reported, and what the matched region looks like now
+      that its boundaries are exported. The last one is new and is the point:
+      a shared opening and a re-upload can both produce a match, and where the
+      match sits in each file is what tells them apart.
+
+      Two things the sweep should settle beyond the mode. Whether any `-x`
+      catches black bars, which need 290 or above, without letting a walk run
+      past the material it was following. And whether the sampling rate can go
+      below 5 fps, which halves the decoding, without losing the shorter
+      manipulations.
