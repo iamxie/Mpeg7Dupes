@@ -54,6 +54,10 @@ static struct entry dict[] = {
     {"full", MODE_FULL},
     {"csv", CSV},
     {"beautiful", BEAUTIFUL},
+    /* numberForKey walks until it reads a null name, so the list has to end
+       with one. Without it an unrecognised keyword read past the array and
+       took the process with it. */
+    {NULL, 0},
 };
 
 
