@@ -70,11 +70,16 @@ ledgerContains(const struct ledger *ledger, uint64_t hash) {
 static void
 ledgerInsertLine(struct ledger *ledger, char *line) {
     char *tab = strchr(line, LEDGER_SEPARATOR);
+    const char *low = NULL, *high = NULL;
 
     if (!tab)
         return;
     *tab = '\0';
-    ledgerInsert(ledger, ledgerHash(line, tab + 1));
+    /* Ordered on the way in as well as on the way out. Lines this program
+       wrote are already in order, but a hand-edited one need not be, and a
+       pair listed the other way round has to count as the same pair. */
+    ledgerOrder(line, tab + 1, &low, &high);
+    ledgerInsert(ledger, ledgerHash(low, high));
 }
 
 int
