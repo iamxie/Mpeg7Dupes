@@ -281,9 +281,11 @@ it is more than a passing quotation and roughly where to look.
 
     scanned 128 candidates, 2 over 40%
 
-It needs ffmpeg, `mpeg7dupes` on PATH, and uv to run the script. Add `--all` to
-list the candidates that did not match, and `--min-coverage` to move the
-threshold. `tools/find_reuse.toml` holds the defaults and the measurements
+It needs ffmpeg, `mpeg7dupes` on PATH, and uv to run the script.
+`--min-coverage` moves the threshold. `--show-misses` also lists the candidates
+that did not match, which is off by default because on a large folder they bury
+the hits, but is the only way to tell a candidate that was checked and cleared
+from one that was never read at all. `tools/find_reuse.toml` holds the defaults and the measurements
 behind each one.
 
 **Why it is a script and not a mode.** mpeg7dupes reads signatures, not video.

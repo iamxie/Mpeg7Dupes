@@ -51,7 +51,7 @@ Usage
 -----
     uv run tools/find_reuse.py --source mine.mp4 --candidates ./downloads
     uv run tools/find_reuse.py --source mine.mp4 --candidates ./downloads \\
-        --min-coverage 30 --all
+        --min-coverage 30 --show-misses
 """
 
 import argparse
@@ -99,7 +99,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--thxh", type=int, metavar="N",
                    help="Frame similarity threshold. Default 290.")
     p.add_argument("--jobs", type=int, metavar="N", help="Cores for the comparison. Default all.")
-    p.add_argument("--all", action="store_true", help="List the candidates that did not match too.")
+    p.add_argument("--show-misses", action="store_true",
+                   help="Also list the candidates that did not match. Off by "
+                        "default, because on a large folder the misses bury "
+                        "the hits, but it is the only way to tell a candidate "
+                        "that was checked and cleared from one that was never "
+                        "read at all.")
     p.add_argument("--overwrite", action="store_true", help="Recompute signatures that already exist.")
     p.add_argument("--config", metavar="FILE", help="toml settings file.")
     p.add_argument("--ffmpeg", metavar="PATH", help="Path to ffmpeg.")
@@ -320,7 +325,7 @@ def main() -> int:
         where = (f"starting at {as_clock(start)}" if end is None
                  else f"starting between {as_clock(start)} and {as_clock(end)}")
         print(f"{path}   used {source.name}, {where}")
-    if args.all:
+    if args.show_misses:
         for path in sorted(misses):
             print(f"{path}   no sign of {source.name}")
     print(f"\nscanned {len(entries)} candidates, {len(hits)} over "
