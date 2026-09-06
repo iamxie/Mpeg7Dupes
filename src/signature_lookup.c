@@ -474,16 +474,22 @@ evaluate_parameters(
 	MatchingInfo *infos,
 	MatchingInfo bestmatch)
 {
-    int dist, distsum = 0, bcount = 1, dir = DIR_NEXT;
-    int fcount = 0, goodfcount = 0, gooda = 0, goodb = 0;
-    double meandist, minmeandist = bestmatch.meandist;
-    int tolerancecount = 0;
-    FineSignature *aprev = NULL, *bprev = NULL;
-    int status = STATUS_NULL;
+    /* The only thing that carries from one candidate to the next: the best
+     * mean distance seen so far, which is what the candidates are ranked on.
+     * Everything else describes one candidate's walk and is declared inside
+     * the loop, so the next candidate cannot inherit it. */
+    double minmeandist = bestmatch.meandist;
 
     for (; infos != NULL; infos = infos->next) {
         FineSignature *a = infos->first;
         FineSignature *b = infos->second;
+        FineSignature *aprev = NULL, *bprev = NULL;
+        int dist, distsum = 0, bcount = 1, dir = DIR_NEXT;
+        int fcount = 0, goodfcount = 0, gooda = 0, goodb = 0;
+        int tolerancecount = 0;
+        int status = STATUS_NULL;
+        double meandist;
+
         while (1) {
             dist = get_l1dist(sc, a->framesig, b->framesig);
 
