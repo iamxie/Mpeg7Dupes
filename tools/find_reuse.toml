@@ -17,12 +17,14 @@ fps = 5.0
 # percent.
 #
 # 40 has measurements behind it. Across 96 videos, the 60 that did not contain
-# the source reached 16% at most, and the 36 that did all reached 100%. 40 sits
+# the source reached 8% at most, and the 36 that did all reached 100%. 40 sits
 # in the empty space between, far from either.
 #
-# Remember that coverage is overstated: where the other video used 30% of the
-# source, this reports 62%. So 40 fires at around 20% of real use. That bias is
-# deliberate. Better to look at a few extra videos than to miss one.
+# Coverage runs a little high: clips using 86%, 50% and 30% of the source came
+# back as 88%, 54% and 33%, because the walk that extends a match carries a few
+# frames past each end of what is really shared. So 40 fires at around 36% of
+# real use. Erring that way is deliberate. Better to look at a few extra videos
+# than to miss one.
 min_coverage = 40.0
 
 # Frame similarity threshold, passed to mpeg7dupes as -x.

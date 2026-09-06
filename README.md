@@ -329,11 +329,12 @@ free. Rerunning the example above took 1.5 seconds instead of 58.
 
 **Two numbers the output will not give you, on purpose.**
 
-The proportion is overstated, so the script reports only that a threshold was
-passed. Where the other video used 30% of the source, the comparison reports
-62%, and the less they used the worse it gets. `--min-coverage 40` therefore
-fires at around 20% of real use, which errs towards looking at a few extra
-videos rather than missing one.
+The proportion runs a little high, so the script reports only that a threshold
+was passed. Clips using 86%, 50% and 30% of the source came back as 88%, 54%
+and 33%: the walk that extends a match carries a few frames past each end of
+what is really shared. `--min-coverage 40` therefore fires at around 36% of
+real use, which errs towards looking at a few extra videos rather than missing
+one.
 
 The start is a range whenever they used only part of the source, because what
 the comparison reports is where frame 0 of the source would sit in the other
@@ -343,13 +344,13 @@ they used the whole thing nothing was skipped, the offset is exact, and the
 output gives a single timestamp; that was right to the second on all 36 videos
 it was checked against.
 
-Sometimes neither number means anything. The walk that extends a match outwards
-can carry on past the shared part, counting the unrelated frames it meets as
-good ones: on a pair sharing exactly 900 frames the comparison reported 1406,
-with 99.5% of them scored as good. A match longer than the shorter of the two
-videos is the tell, and the script says so rather than printing a position it
-cannot stand behind. The match itself is still reported, because something made
-it fire, and you would rather look than be spared the trouble.
+The length is capped at what is possible either way, since a match cannot be
+longer than the shorter of the two videos, and one that needed capping is
+reported without a position. That guard was written when the comparison could
+report 1406 frames of a 900 frame overlap. The cause turned out to be counters
+carried from one candidate to the next, fixed since, and on the 276 pairs where
+11 needed capping before, none do now. It stays because it costs nothing and
+what it catches is silent.
 
 **What it will miss.** The same edits the comparison struggles with. Stacking
 five manipulations at once, scaling down and adding captioned bars and cutting

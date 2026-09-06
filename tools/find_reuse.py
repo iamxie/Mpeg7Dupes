@@ -32,11 +32,12 @@ prints the answer.
 
 Two numbers not to quote
 ------------------------
-1. Coverage is overstated. Measured: where the other video used 30% of the
-   reference, this reports 62%, and the less they used the worse it gets. So
-   the output says only that a threshold was passed, never a percentage. It
-   also means --min-coverage 40 fires at around 20% of real use. That bias is
-   deliberate: better to look at a few extra videos than to miss one.
+1. Coverage runs a little high. Clips using 86%, 50% and 30% of the reference
+   came back as 88%, 54% and 33%: the walk that extends a match carries a few
+   frames past each end of what is really shared. So the output says only that
+   a threshold was passed, never a percentage, and --min-coverage 40 fires at
+   around 36% of real use. Erring that way is deliberate: better to look at a
+   few extra videos than to miss one.
 2. The start is a range, not a point. What the comparison reports is where
    frame 0 of the reference would sit in the other video, so it lands early by
    however much of the reference's head was skipped. The real start is
@@ -45,14 +46,13 @@ Two numbers not to quote
    offset is exact; that case is reported as a single timestamp, and was right
    to the second on all 36 videos it was measured against.
 
-Sometimes neither number means anything at all. The walk that extends a match
-outwards can carry on past the shared part, scoring the unrelated frames it
-meets as good ones, and the length it then reports describes a region that is
-not there. Measured on a pair sharing exactly 900 frames, the comparison
-reported 1406 with 99.5% of them counted as good. A match longer than the
-shorter of the two videos is the tell, and the output says so instead of giving
-a position. The match still stands, because something made it fire; where and
-how much are what cannot be trusted.
+The length is capped at what is possible either way, since a match cannot be
+longer than the shorter of the two videos, and one that needed capping is
+reported without a position. That guard was written when the comparison could
+report 1406 frames of a 900 frame overlap. The cause turned out to be counters
+carried from one candidate to the next, which is fixed, and on the 276 pairs
+where 11 needed capping before, none do now. It stays because it costs nothing
+and what it catches is silent.
 
 Precedence
 ----------
@@ -341,13 +341,11 @@ def main() -> int:
     for (source_bin, name), found in results.items():
         source_entry = source_entries[source_bin]
         # A match cannot be longer than the shorter of the two videos it was
-        # found in. When it is, the walk carried on past the shared part and
-        # kept scoring the frames it met as good ones, so the length and the
-        # position it reports both describe a region that is not there.
-        # Measured on a pair sharing exactly 900 frames: at the default
-        # threshold it reported 1406, with 99.5% of them counted as good.
-        # The tolerance covers the frame or two that rounding a duration into a
-        # frame count can add, which is not the same thing at all.
+        # found in. Nothing in the current comparison produces one that is, but
+        # a version of it did, and the failure was silent: the length and the
+        # position both described a region that was not there. The check is two
+        # comparisons, so it stays. The tolerance covers the frame or two that
+        # rounding a duration into a frame count can add.
         ceiling = min(source_entry["frames"], entries[name]["frames"])
         overrun = found["matchframes"] > max(ceiling * 1.02, ceiling + 2)
         length = min(found["matchframes"], ceiling)
