@@ -45,6 +45,15 @@ Two numbers not to quote
    offset is exact; that case is reported as a single timestamp, and was right
    to the second on all 36 videos it was measured against.
 
+Sometimes neither number means anything at all. The walk that extends a match
+outwards can carry on past the shared part, scoring the unrelated frames it
+meets as good ones, and the length it then reports describes a region that is
+not there. Measured on a pair sharing exactly 900 frames, the comparison
+reported 1406 with 99.5% of them counted as good. A match longer than the
+shorter of the two videos is the tell, and the output says so instead of giving
+a position. The match still stands, because something made it fire; where and
+how much are what cannot be trusted.
+
 Precedence
 ----------
     command line > the toml named by --config > built-in defaults
@@ -328,11 +337,24 @@ def main() -> int:
 
     results = compare(sig_dir, sorted(source_entries), sorted(entries), settings)
 
-    hits, matched = [], set()
+    hits, matched, overran = [], set(), 0
     for (source_bin, name), found in results.items():
         source_entry = source_entries[source_bin]
-        coverage = 100.0 * found["matchframes"] / source_entry["frames"]
+        # A match cannot be longer than the shorter of the two videos it was
+        # found in. When it is, the walk carried on past the shared part and
+        # kept scoring the frames it met as good ones, so the length and the
+        # position it reports both describe a region that is not there.
+        # Measured on a pair sharing exactly 900 frames: at the default
+        # threshold it reported 1406, with 99.5% of them counted as good.
+        # The tolerance covers the frame or two that rounding a duration into a
+        # frame count can add, which is not the same thing at all.
+        ceiling = min(source_entry["frames"], entries[name]["frames"])
+        overrun = found["matchframes"] > max(ceiling * 1.02, ceiling + 2)
+        length = min(found["matchframes"], ceiling)
+        coverage = 100.0 * length / source_entry["frames"]
         if coverage >= settings["min_coverage"]:
+            if overrun:
+                overran += 1
             # The offset says where frame 0 of the source would sit in the
             # other video, so it lands early by however much of the source's
             # head was skipped. The real start is within one source length of
@@ -340,17 +362,21 @@ def main() -> int:
             # and the offset is the answer, which held to the second on all 36
             # videos it was measured against.
             start = found["t_other"] - found["t_source"]
-            exact = found["whole"] == 1 and coverage >= 95.0
-            hits.append((source_shown[source_bin], shown[name], start,
+            exact = found["whole"] == 1 and coverage >= 95.0 and not overrun
+            hits.append((source_shown[source_bin], shown[name], overrun, start,
                          None if exact else start + source_entry["seconds"]))
             matched.add(name)
 
     print()
     # Sorted by source first, because the question being asked is which of my
     # clips were taken, not what is inside each of their videos.
-    for source_name, path, start, end in sorted(hits):
-        where = (f"starting at {as_clock(start)}" if end is None
-                 else f"starting between {as_clock(start)} and {as_clock(end)}")
+    for source_name, path, overrun, start, end in sorted(hits):
+        if overrun:
+            where = "position unreliable, the match ran past the end of the video"
+        elif end is None:
+            where = f"starting at {as_clock(start)}"
+        else:
+            where = f"starting between {as_clock(start)} and {as_clock(end)}"
         print(f"{path}   used {source_name}, {where}")
     if args.show_misses:
         for name in sorted(entries, key=lambda n: shown[n]):
@@ -360,6 +386,10 @@ def main() -> int:
           f"source{'s' if len(source_entries) > 1 else ''}, "
           f"{len(hits)} match{'es' if len(hits) != 1 else ''} over "
           f"{settings['min_coverage']:.0f}%")
+    if overran:
+        print(f"{overran} of them ran past the end of the video they were found "
+              f"in, so their length and position mean nothing. The match itself "
+              f"still stands: something is shared, just not where it says.")
     return 0
 
 

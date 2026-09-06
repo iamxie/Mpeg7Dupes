@@ -325,6 +325,14 @@ they used the whole thing nothing was skipped, the offset is exact, and the
 output gives a single timestamp; that was right to the second on all 36 videos
 it was checked against.
 
+Sometimes neither number means anything. The walk that extends a match outwards
+can carry on past the shared part, counting the unrelated frames it meets as
+good ones: on a pair sharing exactly 900 frames the comparison reported 1406,
+with 99.5% of them scored as good. A match longer than the shorter of the two
+videos is the tell, and the script says so rather than printing a position it
+cannot stand behind. The match itself is still reported, because something made
+it fire, and you would rather look than be spared the trouble.
+
 **What it will miss.** The same edits the comparison struggles with. Stacking
 five manipulations at once, scaling down and adding captioned bars and cutting
 an extract and prefixing an advertisement, drops it to a fraction of a percent
