@@ -370,8 +370,8 @@ Concatenating the two outputs gives exactly the same rows as one uninterrupted
 run: no pair is repeated and none is lost. Ctrl+C now stops the run outright,
 so at most the pairs in flight are lost.
 
-The ledger is created if it does not exist, so the first run and a resume take
-the same command line. Only the pairs are recorded; the thresholds are not, so
+The ledger is created if it does not exist, along with any directories leading
+to it, so the first run and a resume take the same command line. Only the pairs are recorded; the thresholds are not, so
 they come from the command line every time. That also means a ledger written
 with one set of thresholds must not be reused with another -- the skipped pairs
 would carry the old settings. Start a new ledger when the thresholds change.

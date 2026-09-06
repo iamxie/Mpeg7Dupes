@@ -1,5 +1,7 @@
 #include "ledger.h"
 
+#include <errno.h>
+
 #define LEDGER_SEPARATOR '\t'
 
 /* FNV-1a. The table only ever stores hashes, so a collision would silently
@@ -82,6 +84,32 @@ ledgerInsertLine(struct ledger *ledger, char *line) {
     ledgerInsert(ledger, ledgerHash(low, high));
 }
 
+/* Creates the directories leading up to the ledger, so -s can name a place
+ * that does not exist yet. Only the directories: the last component is the
+ * ledger itself. A directory that is already there is success, not failure,
+ * which is the whole difference between this and mkdir called once. */
+static int
+ledgerMakeParents(const char *path) {
+    char work[2 * MAX_PATH_LENGTH];
+    size_t length = strlen(path);
+
+    if (length >= sizeof(work))
+        return 0;
+    memcpy(work, path, length + 1);
+
+    /* From the second character, so the leading slash of an absolute path is
+       not read as an empty directory name. */
+    for (char *p = work + 1; *p; ++p) {
+        if (*p != '/')
+            continue;
+        *p = '\0';
+        if (mkdir(work, 0777) != 0 && errno != EEXIST)
+            return 0;
+        *p = '/';
+    }
+    return 1;
+}
+
 int
 ledgerOpen(struct ledger *ledger, const char *path, size_t extra) {
     char line[2 * MAX_PATH_LENGTH + 2];
@@ -117,6 +145,8 @@ ledgerOpen(struct ledger *ledger, const char *path, size_t extra) {
         fclose(reader);
     }
 
+    LoggedAssert(ledgerMakeParents(path),
+        "Cannot create the directory for the ledger: %s", path);
     ledger->file = fopen(path, "a");
     LoggedAssert(ledger->file, "Cannot open ledger for appending: %s", path);
     /* Line buffered, so a pair reaches the file as soon as it is recorded and

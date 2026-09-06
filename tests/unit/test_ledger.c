@@ -92,6 +92,31 @@ suiteLedger(void) {
         unlink(path);
     }
 
+    /* -s can name a place that does not exist yet, so the directories leading
+       to it are created. Two levels deep, because creating only the immediate
+       parent would pass a one-level test and still fail here. */
+    {
+        char dir[160], deeper[200];
+
+        snprintf(dir, sizeof(dir), "/tmp/ledger_dirs_%d", (int) getpid());
+        snprintf(path, sizeof(path), "%s/a/b/pairs.ledger", dir);
+        ledgerOpen(&ledger, path, 8);
+        ledgerRecord(&ledger, "a.bin", "b.bin");
+        ledgerClose(&ledger);
+
+        ledgerOpen(&ledger, path, 8);
+        CHECK("a ledger under directories that did not exist is created",
+            ledgerHas(&ledger, "a.bin", "b.bin"));
+        ledgerClose(&ledger);
+
+        unlink(path);
+        snprintf(deeper, sizeof(deeper), "%s/a/b", dir);
+        rmdir(deeper);
+        snprintf(deeper, sizeof(deeper), "%s/a", dir);
+        rmdir(deeper);
+        rmdir(dir);
+    }
+
     /* Without -s there is no ledger, and every pair has to look uncompared. */
     {
         struct ledger disabled = {0};
