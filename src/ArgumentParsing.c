@@ -61,7 +61,8 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
         case ARGP_KEY_END:
             // Bound checking and sanitization
             LoggedAssert(arguments->mode == MODE_FULL ||\
-                arguments->mode == MODE_FAST,
+                arguments->mode == MODE_FAST ||\
+                arguments->mode == MODE_LONGEST,
                 "Unsupported mode");
             LoggedAssert(arguments->sigType == BINARY,
                 "Only binary signatures are supported");
@@ -137,10 +138,12 @@ parseArguments(int argc, char **argv) {
             "every frame"},
         { "jobs", 'j', "{count}", 0, "Number of cores to use. Defaults to every "
             "core on the machine. A count above that is reduced to it"},
-        { "lookup_mode", 'm', "{fast,full}", 0, "Calculate the matching for "
-            "the whole video and output whether the whole video matches or "
-            "only parts, or Calculate only until a matching is found or the "
-            "video ends. Should be faster in some cases."},
+        { "lookup_mode", 'm', "{fast,full,longest}", 0, "fast stops at the "
+            "first candidate that qualifies. full weighs every candidate by "
+            "mean distance, but stops as soon as one reaches both ends. "
+            "longest weighs them by how much matched and never stops early, "
+            "which costs more but does not settle for a shared opening when a "
+            "longer match exists further down the list."},
         { "signature_type", 't', "{xml,binary}", 0, "Only binary is supported"},
         { "minimum_score", 'k', "{float}", 0, "The minimum score to meet to be shown as similar"
             "The default value is 49"},

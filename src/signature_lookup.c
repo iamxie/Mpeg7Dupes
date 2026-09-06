@@ -575,9 +575,15 @@ evaluate_parameters(
          * depended on it and their output does not change. */
         meandist = (double) distsum / (double) goodfcount;
 
-        if (meandist < minmeandist ||
-                status == (STATUS_END_REACHED | STATUS_BEGIN_REACHED) ||
-                (sc->mode == MODE_FAST)){
+        /* Reaching both ends wins outright in every mode but MODE_LONGEST,
+           where it is only as good as the frames behind it. */
+        int better = (sc->mode == MODE_LONGEST)
+            ? bcount > bestmatch.matchframes
+            : (meandist < minmeandist
+               || status == (STATUS_END_REACHED | STATUS_BEGIN_REACHED)
+               || sc->mode == MODE_FAST);
+
+        if (better) {
             minmeandist = meandist;
             /* bestcandidate in this iteration */
             bestmatch.meandist = meandist;
@@ -597,10 +603,13 @@ evaluate_parameters(
             bestmatch.next = NULL;
         }
 
-        /* whole sequence is automatically best match */
         if (status == (STATUS_END_REACHED | STATUS_BEGIN_REACHED)) {
-            bestmatch.whole = 1;
-            break;
+            /* Only the candidate that was stored may claim it, which matters
+               in MODE_LONGEST where a shorter whole match can lose. */
+            if (better)
+                bestmatch.whole = 1;
+            if (sc->mode != MODE_LONGEST)
+                break;
         }
 
         /* first matching sequence is enough, finding the best one is not necessary */
@@ -669,7 +678,11 @@ lookup_signatures(
                     bestmatch.matchframes);
             sll_free(infos);
         }
+    /* MODE_LONGEST keeps going after a whole match, because a short one can
+       reach both ends on material the two clips merely share, and the match
+       worth reporting may be further down the list. */
     } while (find_next_coarsecandidate(sc, second->coarsesiglist,\
-                &cs, &cs2, 0) && !bestmatch.whole);
+                &cs, &cs2, 0)
+             && (sc->mode == MODE_LONGEST || !bestmatch.whole));
     return bestmatch;
 }

@@ -32,6 +32,10 @@ trap 'rm -rf "$work"' EXIT
 ( cd "$here/fixtures" && "$bin" -f csv -m full -i 0 -k 1 -b 0.1 \
     -l "$work/list.txt" > "$work/out.csv" 2> "$work/out.err" )
 
+# A second pass in the other search mode, for the checks that separate them.
+( cd "$here/fixtures" && "$bin" -f csv -m longest -i 0 -k 1 -b 0.1 \
+    -l "$work/list.txt" > "$work/longest.csv" 2>> "$work/out.err" )
+
 sort "$work/out.csv" > "$work/actual.sorted"
 
 failures=0
@@ -60,6 +64,13 @@ field() {
     awk -F, -v a="$1" -v b="$2" -v c="$3" \
         '$1 == a && $2 == b { print $c } $1 == b && $2 == a { print $c }' \
         "$work/out.csv"
+}
+
+# the same, from the -m longest pass
+longfield() {
+    awk -F, -v a="$1" -v b="$2" -v c="$3" \
+        '$1 == a && $2 == b { print $c } $1 == b && $2 == a { print $c }' \
+        "$work/longest.csv"
 }
 
 echo "Comparing the fixtures with $bin"
@@ -100,6 +111,17 @@ check "base vs headinsert scores like a real match, not noise" \
     "$([ "$(field base.bin headinsert.bin 3)" -ge 100 ] && echo yes || echo no)" yes
 check "headinsert vs scaled scores like a real match, not noise" \
     "$([ "$(field headinsert.bin scaled.bin 3)" -ge 100 ] && echo yes || echo no)" yes
+
+# tailinsert is the extract followed by ten seconds of another pattern, so the
+# extract sits at 9 to 21 seconds of base. full stops at the first candidate
+# that reaches both ends, and here that is a match somewhere else in the clip
+# worth a score of 8; longest carries on and finds the real one. This is the
+# whole reason the mode exists.
+check "full settles for the wrong region on base and tailinsert" \
+    "$(field base.bin tailinsert.bin 12)" "18.40"
+check "longest finds the region that is really shared" \
+    "$(longfield base.bin tailinsert.bin 12),$(longfield base.bin tailinsert.bin 13)" \
+    "9.00,20.80"
 
 # Nothing shares content with unrelated, so every pair involving it has to stay
 # down in the noise.

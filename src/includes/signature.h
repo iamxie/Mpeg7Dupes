@@ -45,6 +45,12 @@ enum lookup_mode {
     MODE_OFF,
     MODE_FULL,
     MODE_FAST,
+    /* Ranks candidates by how much matched, and carries on looking after one
+       has reached both ends. MODE_FULL stops there, which is right when the
+       only thing two clips share is the whole of one of them, and wrong when
+       they share an opening: that reaches an end of each between them and
+       ends the search on a match that is only the opening. */
+    MODE_LONGEST,
     NB_LOOKUP_MODE
 };
 
