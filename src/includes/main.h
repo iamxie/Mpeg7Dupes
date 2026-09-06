@@ -28,6 +28,7 @@
 #include "ArgumentParsing.h"
 #include "utils.h"
 #include "ledger.h"
+#include "version.h"
 
 #define NUM_OF_INPUTS 2
 

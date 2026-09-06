@@ -29,6 +29,9 @@ main(int argc, char **argv) {
         resultStream = stdout;
 
     slog_compat_init("logfile", 5, 1);
+    /* First line of every run, on stderr with the rest of the log, so the
+       benchmark harness captures it beside the results it belongs to. */
+    slog_info(4, "mpeg7dupes %s", MPEG7DUPES_VERSION_STRING);
 
     args = parseArguments(argc, argv);
 

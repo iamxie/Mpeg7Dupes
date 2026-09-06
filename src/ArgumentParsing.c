@@ -1,4 +1,10 @@
 #include "ArgumentParsing.h"
+#include "version.h"
+
+/* argp looks this up by name at file scope. It was declared inside
+   parseArguments, where argp could not see it, so --version printed nothing
+   and the string sat at 0.0.1 unnoticed. */
+const char *argp_program_version = "mpeg7dupes " MPEG7DUPES_VERSION_STRING;
 
 int
 numberForKey(char *key)
@@ -127,8 +133,6 @@ struct arguments
 parseArguments(int argc, char **argv) {
     struct arguments arguments;
     error_t result;
-    const char *argp_program_version = "mpeg7Dupes 0.0.1";
-    const char *argp_program_bug_address = "<dcdrj.pub@gmail.com>";
     char doc[] = "Compare binary MPEG7 signatures to find visually"\
         " similar videos";
     char args_doc[] = "[FILE1] [FILE2] ...";

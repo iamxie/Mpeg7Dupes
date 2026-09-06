@@ -418,6 +418,7 @@ mpeg7dupes -l old.txt -n new.txt -f csv -m full -i 0 > new_dupes.csv
 | `-f`, `--output_format` | `beautiful` | `csv` or `beautiful`. Use `csv` |
 | `-j`, `--jobs` | every core | Limit the run to this many cores |
 | `-v`, `--verbosity` | | Repeatable, see below |
+| `--version` | | Print the build and exit. Every run also logs it, so a saved result can be traced to the code that made it |
 | `-m`, `--lookup_mode` | `fast` | `fast` stops at the first match, `full` evaluates the whole clip |
 | `-i`, `--thDi` | 300 | Minimum matching sequence length. **Set this to 0** |
 | `-k`, `--minScore` | 49 | Rows scoring below this are not printed |

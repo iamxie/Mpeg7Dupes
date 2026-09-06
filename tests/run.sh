@@ -34,7 +34,7 @@ trap 'rm -rf "$work"' EXIT
 
 # A second pass in the other search mode, for the checks that separate them.
 ( cd "$here/fixtures" && "$bin" -f csv -m longest -i 0 -k 1 -b 0.1 \
-    -l "$work/list.txt" > "$work/longest.csv" 2>> "$work/out.err" )
+    -l "$work/list.txt" > "$work/longest.csv" 2> "$work/longest.err" )
 
 sort "$work/out.csv" > "$work/actual.sorted"
 
@@ -78,6 +78,14 @@ echo "Comparing the fixtures with $bin"
 # Six fixtures make fifteen pairs, but printCSV drops a row whose score is 0,
 # so excerpt against unrelated never appears. Worth pinning: a pair missing
 # from the output does not mean it was never compared.
+# Matched loosely on purpose: the build number changes with almost every
+# commit, and a test that has to be edited each time is a test that gets
+# edited without being read. What matters is that the banner is there at the
+# default verbosity, since a run whose build is unknown has to be repeated.
+banner='mpeg7dupes v[0-9]+\.[0-9]+ b[0-9]+'
+check "every run says which build produced it" \
+    "$(grep -clE "$banner" "$work/out.err" "$work/longest.err" | wc -l | tr -d ' ')" 2
+
 check "fourteen of the fifteen pairs are reported" \
     "$(tail -n +2 "$work/out.csv" | grep -c .)" 14
 
