@@ -1,0 +1,49 @@
+# Defaults for find_reuse.py.
+#
+# Precedence: command line > this file > the built-in defaults. Put the values
+# you do not want to type every time here and leave the rest out. Point at a
+# different file with --config.
+
+# Sampling rate. The source and the candidates must use the same value; mixing
+# them puts every comparison out of step.
+#
+# 5 is the measured balance. A 70 second clip gives 351 fingerprints at this
+# rate, enough for the match to stand up, and going higher only slows the
+# decode without improving detection. Changing it invalidates every cached
+# signature, which the script notices and recomputes.
+fps = 5.0
+
+# How much of the source a candidate must contain before it is reported, in
+# percent.
+#
+# 40 has measurements behind it. Across 96 videos, the 60 that did not contain
+# the source reached 16% at most, and the 36 that did all reached 100%. 40 sits
+# in the empty space between, far from either.
+#
+# Remember that coverage is overstated: where the other video used 30% of the
+# source, this reports 62%. So 40 fires at around 20% of real use. That bias is
+# deliberate. Better to look at a few extra videos than to miss one.
+min_coverage = 40.0
+
+# Frame similarity threshold, passed to mpeg7dupes as -x.
+#
+# This matters more than it looks. Measured over 96 edited videos, raising it
+# from 60 to 290 changed two whole families of edit:
+#   black bars added        never detected  ->  always detected
+#   black bars with text    never detected  ->  always detected
+# and added no false positives. Below 290 they are missed entirely, not partly.
+thxh = 290
+
+# Cores for the comparison. 0 leaves it to mpeg7dupes, which uses every one.
+# Decoding is the slow part, so this makes little difference.
+jobs = 0
+
+# Which extensions count as video when walking the candidates folder.
+extensions = ["mp4", "mkv", "avi", "mov", "wmv", "flv", "ts", "m4v", "webm", "mpg", "mpeg"]
+
+# Paths to the three programs, needed only when they are not on PATH.
+# mpeg7dupes can be the static build from the nightly release, which has no
+# runtime dependencies at all.
+ffmpeg = "ffmpeg"
+ffprobe = "ffprobe"
+mpeg7dupes = "mpeg7dupes"

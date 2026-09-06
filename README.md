@@ -260,6 +260,59 @@ Two things to watch for in real libraries:
 using box-drawing characters. That grouping assumes rows arrive in order, which
 stopped being true when the comparison loop became parallel. Use `-f csv`.
 
+## Finding your work in someone else's video
+
+Everything above answers "are these two videos the same". `tools/find_reuse.py`
+answers a different question: does anything in this folder contain my clip, and
+whereabouts.
+
+You made a short film. Someone tells you a company cut it into one of their
+videos. You do not need to know exactly how many seconds they took, only that
+it is more than a passing quotation and roughly where to look.
+
+    uv run tools/find_reuse.py --source mine.mp4 --candidates ./downloads
+
+    source      mine.mp4
+    candidates  128, signatures cached in ./downloads/.signatures
+      signatures 128/128
+
+    ./downloads/a.mp4   used mine.mp4, starting at 02:53
+    ./downloads/k.mp4   used mine.mp4, starting between 00:00 and 01:10
+
+    scanned 128 candidates, 2 over 40%
+
+It needs ffmpeg, `mpeg7dupes` on PATH, and uv to run the script. Add `--all` to
+list the candidates that did not match, and `--min-coverage` to move the
+threshold. `tools/find_reuse.toml` holds the defaults and the measurements
+behind each one.
+
+**Why it is a script and not a mode.** mpeg7dupes reads signatures, not video.
+Decoding is also the slow part by a wide margin: on 96 files, generating the
+signatures took 19 minutes and comparing them took 45 seconds. Keeping the
+signatures in a cache makes a second reference against the same folder almost
+free. Rerunning the example above took 1.5 seconds instead of 58.
+
+**Two numbers the output will not give you, on purpose.**
+
+The proportion is overstated, so the script reports only that a threshold was
+passed. Where the other video used 30% of the source, the comparison reports
+62%, and the less they used the worse it gets. `--min-coverage 40` therefore
+fires at around 20% of real use, which errs towards looking at a few extra
+videos rather than missing one.
+
+The start is a range whenever they used only part of the source, because what
+the comparison reports is where frame 0 of the source would sit in the other
+video, and that lands early by however much of the head they skipped. The real
+start is within one source length of it, and the output says "between". When
+they used the whole thing nothing was skipped, the offset is exact, and the
+output gives a single timestamp; that was right to the second on all 36 videos
+it was checked against.
+
+**What it will miss.** The same edits the comparison struggles with. Stacking
+five manipulations at once, scaling down and adding captioned bars and cutting
+an extract and prefixing an advertisement, drops it to a fraction of a percent
+of matched frames, and no threshold recovers that. See Known problems.
+
 ## Long runs
 
 **Threads.** Every core is used by default. `-j N` limits the run to N of them,
