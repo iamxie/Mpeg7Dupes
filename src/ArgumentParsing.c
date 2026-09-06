@@ -160,9 +160,11 @@ parseArguments(int argc, char **argv) {
         { "thXh", 'x', "{float}", 0, "Threshold to detect frames as similar. The "\
             "option value must be an integer greater than zero. The default "\
             "value is 290."},
-        { "thDi", 'i', "{float}", 0, "The minimum length of a sequence in frames to "\
-            "recognize it as matching sequence. The option value must be a "\
-            "non negative integer value. The default value is 300."},
+        { "thDi", 'i', "{float}", 0, "Set this to 0. Documented as the minimum "\
+            "length in frames a matching sequence must have, and it is that, "\
+            "but the same value also ends the walk, so matchframes comes back "\
+            "equal to it and a whole match is never reached. The built-in "\
+            "default of 300 is unusable; see Known problems in the README."},
         { "thIt", 'b', "{float}", 0, "Threshold for relation of good to all frames."\
             "The option value must be a double "\
             "value between 0 and 1. The default value is 0.5."},

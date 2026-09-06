@@ -15,7 +15,19 @@ main(int argc, char **argv) {
        Keep a duplicate of the real stdout for results, then point fd 1 at
        stderr. Every printf after this, slog's included, goes to stderr;
        results go through resultStream. */
-    {
+    /* Except when argp is about to print something and exit. Those flags
+       produce no results, so there is nothing to keep stdout clean for, and
+       redirecting anyway sent the whole of --help to stderr, where a pipe
+       into less or grep could not see it. */
+    int printsAndExits = 0;
+    for (int i = 1; i < argc; ++i) {
+        if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-?")
+                || !strcmp(argv[i], "--usage")
+                || !strcmp(argv[i], "--version") || !strcmp(argv[i], "-V"))
+            printsAndExits = 1;
+    }
+
+    if (!printsAndExits) {
         int savedStdout = dup(STDOUT_FILENO);
         if (savedStdout >= 0) {
             resultStream = fdopen(savedStdout, "w");
@@ -30,8 +42,11 @@ main(int argc, char **argv) {
 
     slog_compat_init("logfile", 5, 1);
     /* First line of every run, on stderr with the rest of the log, so the
-       benchmark harness captures it beside the results it belongs to. */
-    slog_info(4, "mpeg7dupes %s", MPEG7DUPES_VERSION_STRING);
+       benchmark harness captures it beside the results it belongs to. Skipped
+       for the flags that only print: argp says the same thing there, and
+       saying it twice is not saying it better. */
+    if (!printsAndExits)
+        slog_info(4, "mpeg7dupes %s", MPEG7DUPES_VERSION_STRING);
 
     args = parseArguments(argc, argv);
 
