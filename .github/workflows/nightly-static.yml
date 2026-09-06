@@ -89,8 +89,14 @@ jobs:
             exit 1
           fi
 
-      # A binary that compiles but does not work is worse than no binary, so
-      # run it against a duplicate pair it has to find.
+      # Fixtures are checked in, so this covers the comparison itself without
+      # depending on how the runner's ffmpeg happens to encode.
+      - name: Run the test suite
+        run: make test
+
+      # The suite compares signatures that were generated elsewhere, so this
+      # still earns its place: it takes a clip all the way from video to match
+      # on this machine, and would catch the signature format drifting.
       - name: Smoke test
         run: |
           set -e

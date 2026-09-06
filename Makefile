@@ -73,6 +73,30 @@ nonVerboseDebug:
 .PHONY: compile
 compile: buildDirs ${HEADERS} ${OBJS}
 
+# Compares the checked-in fixtures and checks the result against a recorded
+# copy, then checks that -s makes a run resumable. Needs a built binary.
+.PHONY: test
+test: unit
+	@echo
+	@sh tests/run.sh
+	@echo
+	@sh tests/ledger.sh
+
+UNIT_SRCS = $(shell find tests/unit -type f -name '*.c')
+# main.c has its own main(), and test_lookup.c includes signature_lookup.c
+# because the functions it covers have internal linkage, so neither belongs in
+# the link. Sources rather than objects on purpose: sharing ${BUILD_DIR} would
+# let a `make unit` leave -march=native objects behind for a later `make
+# static` to reuse, which is exactly what that target avoids.
+UNIT_LIB_SRCS = $(filter-out ${SRC_DIR}/main.c ${SRC_DIR}/signature_lookup.c,${SRCS})
+
+.PHONY: unit
+unit: buildDirs
+	@echo Building unit tests
+	@$(CC) ${CFLAGS} -O2 -I tests/unit -I ${SRC_DIR} ${INCLUDES} \
+		-o ${BIN_DIR}/unitTests ${UNIT_SRCS} ${UNIT_LIB_SRCS} ${LIBS}
+	@${BIN_DIR}/unitTests
+
 .PHONY: clean
 clean:
 	@echo "Cleaning files"

@@ -344,6 +344,18 @@ mpeg7dupes -l old.txt -n new.txt -f csv -m full -i 0 > new_dupes.csv
 `-vvv` is enormous: six signatures produce about 41,000 lines. Use it on a single
 pair when investigating why something did or did not match, never on a full run.
 
+## Tests
+
+    make test
+
+Runs eighteen unit checks, then compares six checked-in signature fixtures
+against each other and checks the result against named properties and a
+recorded copy of the whole output, then checks that `-s` makes a run resumable.
+Thirty-three checks, no ffmpeg needed, about a second. `tests/README.md` says
+what each part covers and what it does not.
+
+The nightly workflow runs it on both architectures before publishing.
+
 ## Known problems
 
 ### `--thDi` / `-i` is broken, use `-i 0`
