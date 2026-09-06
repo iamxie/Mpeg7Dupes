@@ -63,3 +63,28 @@
 
       Until the lookup code is fixed, `-i 0` is the only usable setting, and the
       README says so.
+
+- [ ] Stop searching at the first whole match, even when a longer one exists
+
+      `lookup_signatures` ends its candidate loop as soon as a match reaches
+      both ends:
+
+          } while (find_next_coarsecandidate(...) && !bestmatch.whole);
+
+      Two clips that share only a short insert can satisfy that. If the insert
+      sits at the head of one and the tail of the other, walking back reaches
+      the beginning of the first and walking forward reaches the end of the
+      second, so both bits get set and the search stops on the insert.
+
+      Measured on two versions of one clip carrying the same 70-second
+      advertisement, sampled at 5 fps: reported `matchframes` 351, which is the
+      advertisement, not the 900 frames of shared content that follow it. The
+      pair is a genuine duplicate and is still found, but on the wrong
+      evidence, and any rule based on how much of the clip matched sees 28%
+      instead of 100%.
+
+      Cross-source pairs hit the same path: two unrelated clips carrying that
+      advertisement score as high as a real duplicate.
+
+      Fixing it means either continuing the search after a whole match and
+      keeping the longest, or scoring candidates before accepting one.

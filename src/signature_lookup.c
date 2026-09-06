@@ -545,7 +545,15 @@ evaluate_parameters(
         if ((double) goodfcount*0.5 < FFMAX(gooda, goodb))
             continue;
 
-        meandist = (double) goodfcount / (double) distsum;
+        /* Mean distance, so the smaller the better. The numerator and the
+         * denominator used to be the other way round, which made this the
+         * reciprocal, and taking the minimum of it picked the worst candidate.
+         * The sentinel the caller seeds bestmatch with, 99999, only makes
+         * sense for a distance, which is what settles the intended direction.
+         * The comparison below only decides partial matches; a match that
+         * reaches both ends breaks out regardless, so whole matches never
+         * depended on it and their output does not change. */
+        meandist = (double) distsum / (double) goodfcount;
 
         if (meandist < minmeandist ||
                 status == (STATUS_END_REACHED | STATUS_BEGIN_REACHED) ||
