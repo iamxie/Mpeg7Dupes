@@ -272,14 +272,29 @@ it is more than a passing quotation and roughly where to look.
 
     uv run tools/find_reuse.py --source mine.mp4 --candidates ./downloads
 
-    source      mine.mp4
+    sources     1
     candidates  128, signatures cached in ./downloads/.signatures
       signatures 128/128
 
     ./downloads/a.mp4   used mine.mp4, starting at 02:53
     ./downloads/k.mp4   used mine.mp4, starting between 00:00 and 01:10
 
-    scanned 128 candidates, 2 over 40%
+    scanned 128 candidates against 1 source, 2 matches over 40%
+
+`--source` also takes a folder, for checking a body of work rather than one
+clip. Ten sources against a hundred and twenty-eight candidates is a thousand
+two hundred and eighty comparisons and no more: sources are never compared
+against each other, and neither are candidates. Output is ordered by source,
+since the question is which of your clips were taken rather than what is inside
+each of their videos.
+
+    uv run tools/find_reuse.py --source ./my_clips --candidates ./downloads
+
+    ./downloads/a.mp4   used interview.mp4, starting at 02:53
+    ./downloads/k.mp4   used interview.mp4, starting between 00:00 and 01:10
+    ./downloads/a.mp4   used timelapse.mp4, starting at 11:40
+
+    scanned 128 candidates against 10 sources, 3 matches over 40%
 
 It needs ffmpeg, `mpeg7dupes` on PATH, and uv to run the script.
 `--min-coverage` moves the threshold. `--show-misses` also lists the candidates

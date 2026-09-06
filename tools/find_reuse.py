@@ -6,18 +6,20 @@
 find_reuse.py
 =============
 
-Takes one video as the reference and scans a folder for files that contain it.
+Takes a video, or a folder of them, and scans another folder for files that
+contain any of them.
 
 The situation this is for: you made a short film, and someone tells you a
 company cut it into one of their videos. You do not need to know exactly how
 many seconds they took. You need to know that it is over some proportion, and
 roughly where, which is enough to go and comment under their video.
 
-    uv run tools/find_reuse.py --source mine.mp4 --candidates ./downloads
+    uv run tools/find_reuse.py --source ./my_clips --candidates ./downloads
 
-    ./downloads/a.mp4   used mine.mp4, starting at 02:53
-    ./downloads/k.mp4   used mine.mp4, starting between 00:00 and 01:10
-    scanned 128 candidates, 2 over 40%
+    ./downloads/a.mp4   used interview.mp4, starting at 02:53
+    ./downloads/k.mp4   used interview.mp4, starting between 00:00 and 01:10
+    ./downloads/a.mp4   used timelapse.mp4, starting at 11:40
+    scanned 128 candidates against 10 sources, 3 matches over 40%
 
 Why this wrapper exists
 -----------------------
@@ -86,8 +88,8 @@ INDEX_NAME = "index.json"
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description="Find which videos in a folder contain a given source video.")
-    p.add_argument("--source", required=True, metavar="FILE",
-                   help="The video to look for.")
+    p.add_argument("--source", required=True, metavar="PATH",
+                   help="The video to look for, or a folder of them.")
     p.add_argument("--candidates", required=True, metavar="PATH",
                    help="Folder to search, walked recursively, or one file.")
     p.add_argument("--min-coverage", type=float, metavar="PCT",
@@ -212,35 +214,50 @@ def as_clock(seconds: float) -> str:
     return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes:02d}:{secs:02d}"
 
 
-def compare(sig_dir: Path, source_bin: str, candidate_bins: list[str],
-            settings: dict) -> dict[str, dict]:
-    """Run one comparison and return a result per candidate signature."""
+def compare(sig_dir: Path, source_bins: list[str], candidate_bins: list[str],
+            settings: dict) -> dict[tuple[str, str], dict]:
+    """Compare every source against every candidate, and nothing else.
+
+    One run per source rather than one run with all of them in the incremental
+    list, because that list is also compared against itself: ten sources would
+    add forty-five comparisons between clips that are all yours. Splitting them
+    means those are never computed rather than computed and discarded, and it
+    costs nothing, because either way each run imports every candidate exactly
+    once. Candidates are never compared against each other in either
+    arrangement; only the incremental list is walked as the outer loop.
+    """
     (sig_dir / "candidates.txt").write_text("\n".join(candidate_bins) + "\n")
-    (sig_dir / "source.txt").write_text(source_bin + "\n")
-
-    # -i 0 because any other value truncates the match. -k 1 and -b 0.1 so
-    # every candidate comes back and the threshold is applied here instead.
-    cmd = [settings["mpeg7dupes"], "-f", "csv", "-m", "full",
-           "-i", "0", "-k", "1", "-b", "0.1", "-x", str(settings["thxh"]),
-           "-l", "candidates.txt", "-n", "source.txt"]
-    if settings["jobs"]:
-        cmd += ["-j", str(settings["jobs"])]
-
-    done = subprocess.run(cmd, cwd=sig_dir, capture_output=True, text=True)
-    if done.returncode != 0:
-        sys.exit(f"mpeg7dupes failed ({done.returncode}):\n{done.stderr.strip()[:600]}")
-
     results = {}
-    for row in csv.DictReader(done.stdout.splitlines()):
-        first, second = row["First signature"], row["Second signature"]
-        source_first = Path(first).name == source_bin
-        other = Path(second if source_first else first).name
-        results[other] = {
-            "matchframes": float(row["matchframes"]),
-            "t_source": float(row["time 1 [s]"] if source_first else row["time 2 [s]"]),
-            "t_other": float(row["time 2 [s]"] if source_first else row["time 1 [s]"]),
-            "whole": int(row["whole"]),
-        }
+
+    for i, source_bin in enumerate(source_bins, 1):
+        (sig_dir / "source.txt").write_text(source_bin + "\n")
+
+        # -i 0 because any other value truncates the match. -k 1 and -b 0.1 so
+        # every candidate comes back and the threshold is applied here instead.
+        cmd = [settings["mpeg7dupes"], "-f", "csv", "-m", "full",
+               "-i", "0", "-k", "1", "-b", "0.1", "-x", str(settings["thxh"]),
+               "-l", "candidates.txt", "-n", "source.txt"]
+        if settings["jobs"]:
+            cmd += ["-j", str(settings["jobs"])]
+
+        done = subprocess.run(cmd, cwd=sig_dir, capture_output=True, text=True)
+        if done.returncode != 0:
+            sys.exit(f"mpeg7dupes failed ({done.returncode}):\n{done.stderr.strip()[:600]}")
+
+        for row in csv.DictReader(done.stdout.splitlines()):
+            first = Path(row["First signature"]).name
+            source_first = first == source_bin
+            other = Path(row["Second signature"]).name if source_first else first
+            results[(source_bin, other)] = {
+                "matchframes": float(row["matchframes"]),
+                "t_source": float(row["time 1 [s]"] if source_first else row["time 2 [s]"]),
+                "t_other": float(row["time 2 [s]"] if source_first else row["time 1 [s]"]),
+                "whole": int(row["whole"]),
+            }
+        if len(source_bins) > 1:
+            print(f"\r  comparing {i}/{len(source_bins)} sources", end="", flush=True)
+    if len(source_bins) > 1:
+        print()
     return results
 
 
@@ -248,13 +265,13 @@ def main() -> int:
     args = build_parser().parse_args()
     settings = load_settings(args)
 
-    source = Path(args.source)
+    source_root = Path(args.source)
     candidates_root = Path(args.candidates)
-    if not source.exists():
-        sys.exit(f"no such source: {source}")
+    if not source_root.exists():
+        sys.exit(f"no such source: {source_root}")
     if not candidates_root.exists():
         sys.exit(f"no such candidates path: {candidates_root}")
-    if source.suffix.lower() == ".bin":
+    if source_root.is_file() and source_root.suffix.lower() == ".bin":
         sys.exit("--source must be a video: a signature carries no duration, "
                  "so there is nothing to take a proportion of.")
 
@@ -269,15 +286,24 @@ def main() -> int:
     settings["ffmpeg"] = need(settings["ffmpeg"], "ffmpeg")
     settings["ffprobe"] = need(settings["ffprobe"], "ffprobe")
 
-    print(f"source      {source.name}")
-    source_entry = make_signature(source, sig_dir, settings, index)
-    if not source_entry:
-        sys.exit("cannot compute the signature of the source")
-    source_bin = sig_name(source)
-    source_frames = source_entry["frames"]
+    sources = collect_videos(source_root, settings)
+    if not sources:
+        sys.exit(f"no videos under {source_root}")
+    print(f"sources     {len(sources)}")
+    source_entries, source_shown = {}, {}
+    for i, video in enumerate(sources, 1):
+        entry = make_signature(video, sig_dir, settings, index)
+        if entry:
+            source_entries[sig_name(video)] = entry
+            source_shown[sig_name(video)] = video.name
+        print(f"\r  signatures {i}/{len(sources)}", end="", flush=True)
+    print()
+    if not source_entries:
+        sys.exit("cannot compute a signature for any source")
 
+    already = {v.resolve() for v in sources}
     videos = [v for v in collect_videos(candidates_root, settings)
-              if v.resolve() != source.resolve()]
+              if v.resolve() not in already]
     if not videos:
         sys.exit(f"no videos under {candidates_root}")
 
@@ -300,12 +326,12 @@ def main() -> int:
     if not entries:
         sys.exit("no candidate signatures to compare")
 
-    results = compare(sig_dir, source_bin, sorted(entries), settings)
+    results = compare(sig_dir, sorted(source_entries), sorted(entries), settings)
 
-    hits, misses = [], []
-    for name, entry in entries.items():
-        found = results.get(name)
-        coverage = 100.0 * found["matchframes"] / source_frames if found else 0.0
+    hits, matched = [], set()
+    for (source_bin, name), found in results.items():
+        source_entry = source_entries[source_bin]
+        coverage = 100.0 * found["matchframes"] / source_entry["frames"]
         if coverage >= settings["min_coverage"]:
             # The offset says where frame 0 of the source would sit in the
             # other video, so it lands early by however much of the source's
@@ -315,20 +341,24 @@ def main() -> int:
             # videos it was measured against.
             start = found["t_other"] - found["t_source"]
             exact = found["whole"] == 1 and coverage >= 95.0
-            hits.append((shown[name], start,
+            hits.append((source_shown[source_bin], shown[name], start,
                          None if exact else start + source_entry["seconds"]))
-        else:
-            misses.append(shown[name])
+            matched.add(name)
 
     print()
-    for path, start, end in sorted(hits):
+    # Sorted by source first, because the question being asked is which of my
+    # clips were taken, not what is inside each of their videos.
+    for source_name, path, start, end in sorted(hits):
         where = (f"starting at {as_clock(start)}" if end is None
                  else f"starting between {as_clock(start)} and {as_clock(end)}")
-        print(f"{path}   used {source.name}, {where}")
+        print(f"{path}   used {source_name}, {where}")
     if args.show_misses:
-        for path in sorted(misses):
-            print(f"{path}   no sign of {source.name}")
-    print(f"\nscanned {len(entries)} candidates, {len(hits)} over "
+        for name in sorted(entries, key=lambda n: shown[n]):
+            if name not in matched:
+                print(f"{shown[name]}   no sign of any source")
+    print(f"\nscanned {len(entries)} candidates against {len(source_entries)} "
+          f"source{'s' if len(source_entries) > 1 else ''}, "
+          f"{len(hits)} match{'es' if len(hits) != 1 else ''} over "
           f"{settings['min_coverage']:.0f}%")
     return 0
 
