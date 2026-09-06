@@ -484,6 +484,12 @@ evaluate_parameters(
         FineSignature *a = infos->first;
         FineSignature *b = infos->second;
         FineSignature *aprev = NULL, *bprev = NULL;
+        /* Furthest reached in each direction, tracked per stream. The walk
+           goes forward from the seed, turns around once and goes back, so
+           neither end is where it finishes; comparing indices on every good
+           frame gets both without depending on how it got there. */
+        FineSignature *afirst = NULL, *alast = NULL;
+        FineSignature *bfirst = NULL, *blast = NULL;
         int dist, distsum = 0, bcount = 1, dir = DIR_NEXT;
         int fcount = 0, goodfcount = 0, gooda = 0, goodb = 0;
         int tolerancecount = 0;
@@ -519,6 +525,14 @@ evaluate_parameters(
 
                 aprev = a;
                 bprev = b;
+
+                /* On pts, not index: the loader fills index in only on the
+                   first and last frame of each coarse signature, so every
+                   other frame carries the zero it was allocated with. */
+                if (!afirst || a->pts < afirst->pts) afirst = a;
+                if (!alast || a->pts > alast->pts) alast = a;
+                if (!bfirst || b->pts < bfirst->pts) bfirst = b;
+                if (!blast || b->pts > blast->pts) blast = b;
 
                 if (a->confidence < 1) gooda++;
                 if (b->confidence < 1) goodb++;
@@ -575,6 +589,10 @@ evaluate_parameters(
             bestmatch.offset = infos->offset;
             bestmatch.first = infos->first;
             bestmatch.second = infos->second;
+            bestmatch.firstBegin = afirst;
+            bestmatch.firstEnd = alast;
+            bestmatch.secondBegin = bfirst;
+            bestmatch.secondEnd = blast;
             bestmatch.whole = 0; /* will be set to true later */
             bestmatch.next = NULL;
         }

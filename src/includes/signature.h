@@ -76,7 +76,10 @@ typedef struct FineSignature {
     struct FineSignature* next;
     struct FineSignature* prev;
     uint64_t pts;
-    uint32_t index; /* needed for xmlexport */
+    /* Only set on the first and last frame of each coarse signature, which is
+       all the xml export needs. Every other frame keeps the zero it was
+       allocated with, so this cannot be used to order frames: use pts. */
+    uint32_t index;
     uint8_t confidence;
     uint8_t words[5];
     uint8_t framesig[SIGELEM_SIZE/5];
@@ -101,8 +104,19 @@ typedef struct MatchingInfo {
     int goodframes;
     int totalframes;
     int whole;
+    /* The frame the candidate was seeded on, in each stream. The walk extends
+       from here in both directions, so this sits somewhere inside the match
+       and not at either end of it. */
     struct FineSignature* first;
     struct FineSignature* second;
+    /* Where the match actually starts and ends in each stream. The seed above
+       does not say, and without these the only thing a caller can work out is
+       the offset between the two, which is where the source would begin if all
+       of it were used. */
+    struct FineSignature* firstBegin;
+    struct FineSignature* firstEnd;
+    struct FineSignature* secondBegin;
+    struct FineSignature* secondEnd;
     struct MatchingInfo* next;
 } MatchingInfo;
 
