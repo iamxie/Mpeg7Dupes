@@ -212,23 +212,6 @@ getPathLastSlashPosition(const char *path) {
 }
 
 
-unsigned int
-buildDirectoryTree(const char *path) {
-    char treePath[MAX_PATH_LENGTH] = {0};
-    unsigned int pathStrLen = strlen(path);
-
-    for (unsigned int j = 0; j < pathStrLen; ++j)
-        if (path[j] == '/') {
-            if (j != pathStrLen - 1) {
-                memcpy(treePath, path, j);
-                int status = mkdir(treePath, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
-                LoggedAssert(status == 0, "Could not create path: %s", path);
-            }
-        }
-    return 1;
-}
-
-
 int
 xml_dump(StreamContext *sc)
 {
