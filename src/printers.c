@@ -52,21 +52,36 @@ printBeautiful(MatchingInfo *info, StreamContext* sc, char *file1,\
     }
 }
 
+/* Seconds for one frame, or -1 when there is no frame to report. A stored
+   match always has at least one good frame under any thIt above zero, so the
+   -1 is there to keep a NULL out of the arithmetic rather than because it is
+   expected. */
+static double
+frameSeconds(FineSignature *frame, StreamContext *stream) {
+    if (!frame)
+        return -1.0;
+    return ((double) frame->pts * stream->time_base.num) / stream->time_base.den;
+}
+
 // TO update with new offsets
 void
 printCSVHeader () {
-    fprintf(resultStream, "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
+    /* whole stays last: the smoke test in the nightly workflow reads it with
+       awk $NF, so new columns go before it, not after. */
+    fprintf(resultStream, "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
         "First signature", "Second signature",\
         "score", "matchframes", "goodframes", "totalframes",\
         "offset", "framerateratio", "meandist",\
-        "time 1 [s]", "time 2 [s]", "whole");
+        "time 1 [s]", "time 2 [s]",\
+        "begin 1 [s]", "end 1 [s]", "begin 2 [s]", "end 2 [s]", "whole");
 }
 
 void
 printCSV(MatchingInfo *info, StreamContext* sc, char *file1, char *file2,\
     int isFirst, int isLast, int isMoreThanOne) {
     if (info->score)
-        fprintf(resultStream, "%s,%s,%d,%d,%d,%d,%d,%.6f,%.2f,%.2f,%.2f,%d\n",
+        fprintf(resultStream,
+                "%s,%s,%d,%d,%d,%d,%d,%.6f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%d\n",
                 file1, file2,
                 info->score,
                 info->matchframes,
@@ -75,9 +90,15 @@ printCSV(MatchingInfo *info, StreamContext* sc, char *file1, char *file2,\
                 info->offset,
                 info->framerateratio,
                 info->meandist,
-                // pts is the frame number
-                ((double) info->first->pts * sc[0].time_base.num) / sc[0].time_base.den,
-                ((double) info->second->pts * sc[1].time_base.num) / sc[1].time_base.den,\
+                // the frame the candidate was seeded on, somewhere inside the
+                // match rather than at either end of it
+                frameSeconds(info->first, &sc[0]),
+                frameSeconds(info->second, &sc[1]),
+                // where the match itself starts and ends in each file
+                frameSeconds(info->firstBegin, &sc[0]),
+                frameSeconds(info->firstEnd, &sc[0]),
+                frameSeconds(info->secondBegin, &sc[1]),
+                frameSeconds(info->secondEnd, &sc[1]),\
                 info->whole);
 }
 

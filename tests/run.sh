@@ -47,6 +47,14 @@ check() {
     fi
 }
 
+# whole is read as the last column rather than by number, because it is
+# documented to stay last and columns get added before it.
+whole() {
+    awk -F, -v a="$1" -v b="$2" \
+        '$1 == a && $2 == b { print $NF } $1 == b && $2 == a { print $NF }' \
+        "$work/out.csv"
+}
+
 # field: pair, column number
 field() {
     awk -F, -v a="$1" -v b="$2" -v c="$3" \
@@ -64,12 +72,24 @@ check "fourteen of the fifteen pairs are reported" \
 
 # A re-encode at half the width is still the same clip from end to end.
 check "base vs scaled covers the whole clip" \
-    "$(field base.bin scaled.bin 4),$(field base.bin scaled.bin 12)" "150,1"
+    "$(field base.bin scaled.bin 4),$(whole base.bin scaled.bin)" "150,1"
 
 # The extract is 12 seconds of the original, 60 frames at 5 fps, and it matches
 # from its first frame to its last.
 check "base vs excerpt finds the extract end to end" \
-    "$(field base.bin excerpt.bin 4),$(field base.bin excerpt.bin 12)" "60,1"
+    "$(field base.bin excerpt.bin 4),$(whole base.bin excerpt.bin)" "60,1"
+
+# headinsert is ten seconds of another pattern followed by the extract, so the
+# extract begins exactly ten seconds in and runs to the end. Only the endpoint
+# columns can say that: the seed frame sits somewhere in the middle of a match,
+# and the offset between the two seeds only locates the start when all of the
+# shorter clip was used.
+check "the endpoints locate the extract inside headinsert" \
+    "$(field excerpt.bin headinsert.bin 14),$(field excerpt.bin headinsert.bin 15)" \
+    "10.00,21.80"
+check "and say the extract matched from its own first frame to its last" \
+    "$(field excerpt.bin headinsert.bin 12),$(field excerpt.bin headinsert.bin 13)" \
+    "0.00,11.80"
 
 # These two share content that sits inside both files, so neither side reaches
 # both of its ends and the candidate has to be chosen on its merits. That
