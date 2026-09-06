@@ -278,19 +278,34 @@ more cores than exist logs a warning and uses what there is.
 2026.09.05-18:36:12.713 <note> Progress 1797/179700 pairs (1.0%), 4.1 pairs/s, ETA 727 min
 ```
 
-**Interrupting.** Ctrl+C offers `[Yes/No/Save]`. Press `s` and give a path to
-write a session file, then resume with only that file:
+**Interrupting.** Pass `-s` and every pair is recorded as it finishes, whether
+or not it matched. Run the same command again after an interruption and it
+picks up where it stopped:
 
 ```sh
-mpeg7dupes -s dupes.sess >> dupes.csv
+mpeg7dupes -l list.txt -f csv -m full -i 0 -s dupes.ledger > part1.csv
+# killed partway through
+mpeg7dupes -l list.txt -f csv -m full -i 0 -s dupes.ledger > part2.csv
 ```
 
-Every other setting is restored from the session, so do not repeat them. The
-session file is deleted once the run finishes normally. Resume granularity is one
-outer iteration, so it repeats some pairs rather than skipping any.
+Concatenating the two outputs gives exactly the same rows as one uninterrupted
+run: no pair is repeated and none is lost. Ctrl+C now stops the run outright,
+so at most the pairs in flight are lost.
 
-**Adding files later.** `-n` compares a second list against itself and against
-the first list, skipping pairs already covered:
+The ledger is created if it does not exist, so the first run and a resume take
+the same command line. Only the pairs are recorded; the thresholds are not, so
+they come from the command line every time. That also means a ledger written
+with one set of thresholds must not be reused with another -- the skipped pairs
+would carry the old settings. Start a new ledger when the thresholds change.
+
+**Adding files later.** Keep the ledger, add the new signatures to the list and
+run again. Only the new pairs are compared:
+
+```sh
+mpeg7dupes -l more.txt -f csv -m full -i 0 -s dupes.ledger > new_dupes.csv
+```
+
+`-n` does the same thing for a single batch without keeping a record:
 
 ```sh
 mpeg7dupes -l old.txt -n new.txt -f csv -m full -i 0 > new_dupes.csv
@@ -302,7 +317,7 @@ mpeg7dupes -l old.txt -n new.txt -f csv -m full -i 0 > new_dupes.csv
 | --- | --- | --- |
 | `-l`, `--file_list` | | Read signature paths from a file, one per line |
 | `-n`, `--incremental_file_list` | | Compare this list against itself and against `-l` |
-| `-s`, `--session_file` | | Resume an interrupted run; the file must exist |
+| `-s`, `--ledger` | | Record compared pairs here and skip the ones already in it |
 | `-f`, `--output_format` | `beautiful` | `csv` or `beautiful`. Use `csv` |
 | `-j`, `--jobs` | every core | Limit the run to this many cores |
 | `-v`, `--verbosity` | | Repeatable, see below |

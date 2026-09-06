@@ -1,9 +1,7 @@
 #include "main.h"
 
 struct arguments args = {0};
-struct session session = {0};
-
-void (*oldSEGVhandler)(int) = NULL;
+struct ledger ledger = {0};
 
 int
 main(int argc, char **argv) {
@@ -15,8 +13,8 @@ main(int argc, char **argv) {
     /* slog writes with printf and offers no way to retarget it, so results and
        log lines both landed on stdout and `> out.csv` captured a mix of the two.
        Keep a duplicate of the real stdout for results, then point fd 1 at
-       stderr. Every printf after this, slog's included and the Ctrl+C session
-       prompt among them, goes to stderr; results go through resultStream. */
+       stderr. Every printf after this, slog's included, goes to stderr;
+       results go through resultStream. */
     {
         int savedStdout = dup(STDOUT_FILENO);
         if (savedStdout >= 0) {
@@ -31,37 +29,27 @@ main(int argc, char **argv) {
         resultStream = stdout;
 
     slog_compat_init("logfile", 5, 1);
-    initSession(&session, &args, &index);
-
-
-    signal(SIGINT, INThandler);
-    oldSEGVhandler = signal(SIGSEGV, SEGVhandler);
-
 
     args = parseArguments(argc, argv);
 
     slog_info(4, "Logging initialized");
 
-    if (args.sessionFile)
-        loadSession(&args, &index, args.sessionFile);
-    else {
-        if (args.listFile)
-            initFileIterator(&index, args.listFile);
-        else
-            initFileIteratorFromCmdLine(&index, args.filePaths,\
-                args.numberOfPaths);
+    if (args.listFile)
+        initFileIterator(&index, args.listFile);
+    else
+        initFileIteratorFromCmdLine(&index, args.filePaths,\
+            args.numberOfPaths);
 
-        if (args.incrementalFile) {
-            struct fileIndex incrementalIndex = {0};
-            struct fileIndex tmpIndex = {0};
+    if (args.incrementalFile) {
+        struct fileIndex incrementalIndex = {0};
+        struct fileIndex tmpIndex = {0};
 
-            slog_info(4, "Incremental mode selected");
-            initFileIterator(&incrementalIndex, args.incrementalFile);
-            tmpIndex = mergeFileIterators(&incrementalIndex, &index);
-            tmpIndex.maxIndexA = getNumberOfLinesFromFilename(args.incrementalFile);
-            terminateFileIterator(&index);
-            index = tmpIndex;
-        }
+        slog_info(4, "Incremental mode selected");
+        initFileIterator(&incrementalIndex, args.incrementalFile);
+        tmpIndex = mergeFileIterators(&incrementalIndex, &index);
+        tmpIndex.maxIndexA = getNumberOfLinesFromFilename(args.incrementalFile);
+        terminateFileIterator(&index);
+        index = tmpIndex;
     }
 
 
@@ -115,8 +103,6 @@ main(int argc, char **argv) {
     processFiles(&index, printFunctionPointer);
     terminateFileIterator(&index);
 
-    if (args.sessionFile)
-        deleteSession(args.sessionFile);
     slog_info(4, "Signature processing finished");
 
     return 0;
@@ -138,6 +124,22 @@ processFiles(struct fileIndex *index, void (*printFunctionPointer)
             totalPairs += remaining;
     }
 
+    long skippedPairs = 0;
+
+    if (args.ledgerFile) {
+        ledgerOpen(&ledger, args.ledgerFile, (size_t) totalPairs);
+        /* Counted up front so the progress line and the ETA describe the work
+           this run will actually do, not the work the whole batch would. */
+        for (int i = index->indexA + 1; i < index->maxIndexA; ++i) {
+            char *first = &index->pathsMatrix[i*MAX_PATH_LENGTH];
+            for (int j = i + 1; j < index->maxIndexB; ++j)
+                if (ledgerHas(&ledger, first,
+                        &index->pathsMatrix[j*MAX_PATH_LENGTH]))
+                    skippedPairs++;
+        }
+        totalPairs -= skippedPairs;
+    }
+
     long donePairs = 0;
     /* Report every 1%, but no more often than every 50 pairs. */
     long progressStep = totalPairs / 100;
@@ -145,14 +147,11 @@ processFiles(struct fileIndex *index, void (*printFunctionPointer)
         progressStep = 50;
     time_t startTime = time(NULL);
 
-    slog_live(5, "Comparing %ld file pairs", totalPairs);
-
-    /* Session-resume bookkeeping. Now that the outer loop runs in parallel the
-       iterations no longer complete in increasing order, so only advance the
-       saved index once every outer iteration below it has finished. Resuming
-       then repeats work at worst, and never skips a pair. */
-    char *outerDone = calloc((size_t) index->maxIndexA, 1);
-    int firstIncomplete = index->indexA + 1;
+    if (skippedPairs)
+        slog_live(5, "Comparing %ld file pairs, skipping %ld already in the "
+            "ledger", totalPairs, skippedPairs);
+    else
+        slog_live(5, "Comparing %ld file pairs", totalPairs);
 
     /* Parallelise the outer loop, not the inner one.
        Parallelising the inner loop forked and joined once per outer iteration,
@@ -179,6 +178,9 @@ processFiles(struct fileIndex *index, void (*printFunctionPointer)
             MatchingInfo result = {0};
             char *file2 = &tmpIndex.pathsMatrix[tmpIndex.indexB*MAX_PATH_LENGTH];
 
+            if (ledgerHas(&ledger, file1, file2))
+                continue;
+
             scontexts[0] = scontextsBase[0];
             binary_import(&scontexts[1], file2);
 
@@ -202,6 +204,9 @@ processFiles(struct fileIndex *index, void (*printFunctionPointer)
 
             signature_unload(&scontexts[1]);
             fflush(resultStream);
+            /* After the result is flushed, so a pair is only ever marked done
+               once its output is on its way out. */
+            ledgerRecord(&ledger, file1, file2);
 
             long done;
             #pragma omp atomic capture
@@ -218,22 +223,9 @@ processFiles(struct fileIndex *index, void (*printFunctionPointer)
 
         }
         signature_unload(&scontextsBase[0]);
-
-        /* Named so it cannot collide with the unnamed critical in printResult. */
-        #pragma omp critical (outerProgress)
-        {
-            if (outerDone) {
-                outerDone[i] = 1;
-                while (firstIncomplete < index->maxIndexA
-                        && outerDone[firstIncomplete])
-                    ++firstIncomplete;
-                index->indexA = firstIncomplete - 1;
-                index->indexB = firstIncomplete;
-            }
-        }
     }
 
-    free(outerDone);
+    ledgerClose(&ledger);
 }
 
 // This function processes the signatures by using index as an iterator
@@ -286,46 +278,4 @@ processSignaturePair(
 
     result = lookup_signatures(&sigContext, signatureA, signatureB);
     return result;
-}
-
-void
-INThandler(int sig)
-{
-     char  c;
-
-     printf(" detected Do you really want to quit or save the session?"
-        " [Yes/No/Save] ");
-     fflush(stdout);
-
-     c = getchar();
-     switch (c) {
-         case 'y':
-         case 'Y':
-             exit(0);
-             break;
-
-         case 's':
-         case 'S':
-             saveSessionPrompt(&session);
-             exit(0);
-             break;
-
-         case 'n':
-         case 'N':
-         default:
-             break;
-     }
-     // We have to reset the handler after every catch
-     signal(SIGINT, INThandler);
-     getchar(); // Get new line character
-}
-
-void
-SEGVhandler(int sig)
-{
-     slog_panic(0, "Segfault detected, saving session");
-     saveSession(&session,"segfaultedSession.sess");
-     // We crash this program, with no handlers!
-     signal(SIGSEGV, oldSEGVhandler);
-     raise(SIGSEGV);
 }

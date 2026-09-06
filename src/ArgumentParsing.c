@@ -34,7 +34,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
         case 'f': if (arg) arguments->outputFormat  = numberForKey(arg);
                       break;
         case 'l': if (arg) arguments->listFile = arg; break;
-        case 's': if (arg) arguments->sessionFile = arg; break;
+        case 's': if (arg) arguments->ledgerFile = arg; break;
         case 'n': if (arg) arguments->incrementalFile = arg; break;
         case ARGP_KEY_ARG:
             break;
@@ -42,7 +42,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
             slog_debug(6, "Initializing arg parsing");
             arguments->verbose = 0;
             arguments->listFile = NULL;
-            arguments->sessionFile = NULL;
+            arguments->ledgerFile = NULL;
             arguments->incrementalFile = NULL;
             arguments->mode = MODE_FAST;
             arguments->sigType = BINARY;
@@ -85,19 +85,12 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
                 arguments->outputFormat == CSV,\
                 "Output format not supported");
 
-            if (arguments->sessionFile) {
-                AssertFileExistence(arguments->sessionFile,
-                    "Session file not found");
-            }
-
-
             if (arguments->incrementalFile) {
                 AssertFileExistence(arguments->incrementalFile,
                     "Incremental file list not found");
             }
 
-            if (state->arg_num < 2 && !arguments->listFile\
-                    && !arguments->sessionFile) {
+            if (state->arg_num < 2 && !arguments->listFile) {
                 slog_error(2, "You should supply at least 2 files");
                 argp_usage(state);
             } else if (arguments->listFile){
@@ -170,7 +163,11 @@ parseArguments(int argc, char **argv) {
             "Only csv and beautiful are supported. beautiful is default"},
         { "file_list", 'l', "file_list", 0, "Specify a list of signature files"},
         { "incremental_file_list", 'n', "incremental_file_list", 0, "Specify a list of signature files that will be matched between each other and the specified files. Use this mode if you DON'T want to rematch every signature in the file list or argument list."},
-        { "session_file", 's', "session_file", 0, "Resume previous session"},
+        { "ledger", 's', "ledger_file", 0, "Record every compared pair in "\
+            "this file and skip the pairs already in it, so an interrupted "\
+            "run continues instead of starting over. The file is created if "\
+            "it does not exist. Keep it and add files to the list to compare "\
+            "only what is new."},
         { 0 }
     };
 

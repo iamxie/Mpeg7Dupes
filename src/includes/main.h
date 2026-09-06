@@ -27,15 +27,9 @@
 #include "printers.h"
 #include "ArgumentParsing.h"
 #include "utils.h"
-#include "session.h"
+#include "ledger.h"
 
 #define NUM_OF_INPUTS 2
-
-void
-INThandler(int);
-
-void
-SEGVhandler(int);
 
 void
 processFiles(struct fileIndex *index, void (*printFunctionPointer)

@@ -28,7 +28,7 @@ enum formatTypes {
 struct arguments {
     int verbose;
     char *listFile;
-    char *sessionFile;
+    char *ledgerFile;
     char *incrementalFile;
     enum lookup_mode mode;
     enum signatureType sigType;
