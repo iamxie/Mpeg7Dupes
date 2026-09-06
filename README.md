@@ -81,8 +81,8 @@ m7d mpeg7dupes -l siglist.txt -f csv -m full -i 0 -v > dupes.csv 2> run.log
 clips, one of which was a rescaled and trimmed copy of another:
 
 ```
-First signature,Second signature,score,matchframes,goodframes,totalframes,offset,framerateratio,meandist,time 1 [s],time 2 [s],whole
-sig/original.bin,sig/reupload.bin,1056,450,450,450,-26,1.000000,0.08,6.00,1.00,1
+First signature,Second signature,score,matchframes,goodframes,totalframes,offset,framerateratio,meandist,time 1 [s],time 2 [s],begin 1 [s],end 1 [s],begin 2 [s],end 2 [s],whole
+sig/original.bin,sig/reupload.bin,1056,550,550,550,-26,1.000000,12.57,6.00,1.00,5.00,114.80,0.00,109.80,1
 ```
 
 ## Installing without Docker
@@ -138,7 +138,7 @@ running it inside a bare `busybox` container, which carries no glibc:
 ```
 $ docker run --rm -v .:/data -w /data busybox ./mpeg7Dupes.elf -f csv -m full -i 0 a.bin b.bin
 First signature,Second signature,score,matchframes,goodframes,...
-a.bin,b.bin,1056,550,550,550,-26,1.000000,0.08,6.00,1.00,1
+a.bin,b.bin,1056,550,550,550,-26,1.000000,12.57,6.00,1.00,5.00,114.80,0.00,109.80,1
 ```
 
 Only libslog, glibc and libgomp end up inside it. libavcodec and libavfilter
@@ -232,26 +232,44 @@ at any verbosity.
 | `offset` | Alignment between the two clips, in fingerprints. Divide by your `fps` for seconds |
 | `framerateratio` | Detected second/first rate ratio. 1.0 for a real match |
 | `meandist` | Mean distance for the match, lower is closer |
-| `time 1 [s]`, `time 2 [s]` | Where the match starts in each clip |
-| `whole` | 1 when the whole clip matches |
+| `time 1 [s]`, `time 2 [s]` | The frame each candidate was seeded on. The walk grows outwards from there, so this sits inside the match, not at either end |
+| `begin 1 [s]`, `end 1 [s]` | Where the match starts and ends in the first clip |
+| `begin 2 [s]`, `end 2 [s]` | The same for the second |
+| `whole` | 1 when the walk reached a beginning and an end. Read the note below before trusting it |
 
 Reading the example above, with signatures sampled at 5 fps:
 
 ```
-sig/original.bin,sig/reupload.bin,1056,450,450,450,-26,1.000000,0.08,6.00,1.00,1
+original.bin,reupload.bin,1056,550,550,550,-26,1.000000,12.57,6.00,1.00,5.00,114.80,0.00,109.80,1
 ```
 
-`matchframes` 450 against a 450-fingerprint signature and `whole` 1 mean the
-shorter clip matches end to end. `offset` -26 is 26 fingerprints, so about five
-seconds were cut from the head of the copy. `framerateratio` 1.0 confirms the two
+`matchframes` 550 against a 550-fingerprint signature and `whole` 1 mean the
+shorter clip matches end to end. The boundaries say where: `begin 2` 0.00 and
+`end 2` 109.80 are the whole of the copy, and `begin 1` 5.00 and `end 1` 114.80
+place it five seconds into the original. `framerateratio` 1.0 confirms the two
 run at the same speed. The file was in fact a 240x136 re-encode of a 320x180
 original with five seconds trimmed from each end.
+
+Note where the seed landed: `time 1` 6.00 and `time 2` 1.00 are a second inside
+a match that runs for a hundred and ten. Those two columns answer "the walk
+started here", not "the match starts here".
 
 Two things to watch for in real libraries:
 
 - **Episodes of one series share an opening.** They will match each other on
-  those frames alone. A short `matchframes` with `whole` 0 is the signature of
-  this; a genuine duplicate matches most of its length.
+  those frames alone. The tell is `matchframes` short against the length of
+  either clip, and the boundary columns say where the shared part sits: an
+  opening lands at the start of both.
+
+  `whole` does not settle it, and reading it as "these are the same video" is
+  the single worst false positive this tool produces. It is set when the walk
+  reached a beginning and an end, which need not be of the same file. Material
+  at the head of one clip and the tail of another satisfies it between them.
+  Measured on the benchmark: two unrelated clips carrying the same 70 second
+  advertisement came back with `whole` 1, 351 matched frames, which is the
+  advertisement to the frame, and a score of 1980, higher than any genuine
+  duplicate in the set. Compare `matchframes` against the clip lengths before
+  believing `whole`.
 - **Visually uniform footage produces false positives.** Interviews against a
   plain backdrop, dark scenes, and static title cards carry little information
   for any perceptual hash.
