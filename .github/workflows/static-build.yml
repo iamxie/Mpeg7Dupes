@@ -1,19 +1,36 @@
-name: Nightly static build
+name: Static build
 
-# Builds the standalone binary once a day, and skips the whole thing when the
-# commit has already been built. The guard checks whether a release tagged with
-# this commit exists rather than whether a commit landed in the last 24 hours,
-# so a missed or late run catches up instead of silently skipping, and a rerun
-# never produces a second release for the same code.
+# Builds the standalone binary and publishes it, in two situations:
 #
-# Only schedule and workflow_dispatch trigger this, so no attacker-controlled
-# event payload reaches it. Expressions are still passed through env rather
-# than interpolated into shell, which is the habit worth keeping either way.
+#   nightly    once a day from master, published as nightly-<short sha> and
+#              marked prerelease
+#   release    when a v* tag is pushed, published under the tag name as a
+#              real release
+#
+# Both take the same path: build for x86_64 and aarch64, check the binary is
+# actually static, run the test suite, smoke test a clip from video all the way
+# to a match, then publish. A release is a nightly that someone decided to
+# stand behind, so it should not be built by a second, less exercised route.
+#
+# The guard skips the whole thing when a release with the name it would use
+# already exists. It asks about the release rather than about how long ago a
+# commit landed, so a missed or late run catches up instead of silently
+# skipping, and a rerun never produces a second release for the same name.
+#
+# Injection: schedule and workflow_dispatch carry no attacker-controlled
+# payload. A tag push carries the tag name, which only someone with write
+# access can create, and which git already forbids from containing whitespace
+# or control characters. Every expression here still reaches the shell through
+# env and quoted expansion rather than by interpolation, tag name included,
+# because that is the habit that stays correct when the trigger list grows.
 
 on:
   schedule:
     - cron: '17 3 * * *'   # 03:17 UTC daily, off the hour to dodge scheduler congestion
   workflow_dispatch:       # and on demand
+  push:
+    tags:
+      - 'v*'               # v0.1, v0.2, v1.0 ...
 
 permissions:
   contents: write          # needed to publish the release
@@ -24,6 +41,7 @@ jobs:
     outputs:
       build: ${{ steps.check.outputs.build }}
       tag: ${{ steps.check.outputs.tag }}
+      prerelease: ${{ steps.check.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v7
 
@@ -31,9 +49,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          tag="nightly-$(git rev-parse --short HEAD)"
+          if [ "$REF_TYPE" = tag ]; then
+            tag="$REF_NAME"
+            prerelease=false
+          else
+            tag="nightly-$(git rev-parse --short HEAD)"
+            prerelease=true
+          fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
           if gh release view "$tag" --repo "$REPO" >/dev/null 2>&1; then
             echo "$tag already exists, nothing new to build"
             echo "build=false" >> "$GITHUB_OUTPUT"
@@ -69,6 +96,9 @@ jobs:
 
       - name: Build and install slog
         run: |
+          # The default branch, not a tag. The newest tag is v1.8.49 and its
+          # header declares 1.9, while 1.6.2 keeps its Makefile in src/ so a
+          # plain make there fails. See the README.
           git clone --depth 1 https://github.com/kala13x/slog /tmp/slog
           cd /tmp/slog
           echo "slog $(git rev-parse --short HEAD)"
@@ -146,29 +176,74 @@ jobs:
           path: dist
           merge-multiple: true
 
+      # Ask the binary what it is rather than repeating what version.h is
+      # believed to say, so the notes cannot claim a build the artefact is not.
+      # The runner is x86_64; if that leg failed and only aarch64 published,
+      # there is nothing runnable here and the notes omit the line.
+      - id: version
+        run: |
+          reported=""
+          bin=dist/mpeg7dupes-linux-x86_64
+          if [ -f "$bin" ]; then
+            chmod +x "$bin"
+            reported="$("$bin" --version 2>/dev/null | head -1 || true)"
+          fi
+          echo "string=$reported" >> "$GITHUB_OUTPUT"
+          echo "reported: ${reported:-<unavailable>}"
+
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           TAG: ${{ needs.guard.outputs.tag }}
+          PRERELEASE: ${{ needs.guard.outputs.prerelease }}
+          VERSION: ${{ steps.version.outputs.string }}
           SHA: ${{ github.sha }}
         run: |
           ls -l dist
-          cat > notes.md <<'EOF'
+
+          if [ "$PRERELEASE" = true ]; then
+            cat > notes.md <<'EOF'
           Statically linked build of the current `master`, with no runtime
-          dependencies. CI checks that it reports `not a dynamic executable`,
-          and smoke tests it against a rescaled and trimmed duplicate it has to
-          find.
+          dependencies. This is a nightly: it passed CI, but nobody has decided
+          it is the version to use. For that, take the newest `v*` release.
+          EOF
+          else
+            cat > notes.md <<'EOF'
+          Statically linked release build, with no runtime dependencies.
+
+          Download the binary for your architecture, `chmod +x` it, and run it.
+          The `.sha256` beside each one is its checksum.
+
+          **Settings.** Pass `-i 0`; any other value truncates the match. To
+          find duplicates use `-x 290 -m longest`, then keep the pairs whose
+          match covers at least 40 per cent of the shorter file. Measured over
+          4560 pairs built from 96 edited videos, that finds 717 of 720 true
+          duplicates with no false positives; `benchmark.md` has the corpus,
+          the method and the limits. `tools/find_reuse.py` applies all of it.
+          EOF
+          fi
+
+          cat >> notes.md <<'EOF'
+
+          CI checks the binary reports `not a dynamic executable`, runs the test
+          suite, and smoke tests it against a rescaled and trimmed duplicate it
+          has to find.
 
           Built without `-march=native`, so it runs on any CPU of the matching
           architecture. `make release` gives a faster binary if you are staying
           on one machine.
-
-          Remember to pass `-i 0`; see the README for why.
           EOF
+
+          if [ -n "$VERSION" ]; then
+            printf '\nReports: `%s`\n' "$VERSION" >> notes.md
+          fi
           printf '\nCommit: %s\n' "$SHA" >> notes.md
-          gh release create "$TAG" dist/* \
-            --repo "$REPO" \
-            --title "$TAG" \
-            --notes-file notes.md \
-            --prerelease
+
+          if [ "$PRERELEASE" = true ]; then
+            gh release create "$TAG" dist/* --repo "$REPO" \
+              --title "$TAG" --notes-file notes.md --prerelease
+          else
+            gh release create "$TAG" dist/* --repo "$REPO" \
+              --title "$TAG" --notes-file notes.md
+          fi
