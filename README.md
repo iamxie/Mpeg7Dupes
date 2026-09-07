@@ -98,27 +98,56 @@ sudo apt-get install build-essential git libavcodec-dev libavfilter-dev ffmpeg
 
 ### slog
 
+**1.9 or newer is required, and having slog already installed is not enough.**
+This is the single most common way the build fails, and it fails on the machine
+that is most likely to be yours: one that built this project before, and still
+has slog 1.6 sitting in `/usr/local` from that time.
+
+Install it, over the top of whatever is there:
+
 ```sh
-git clone https://github.com/kala13x/slog
-cd slog
-make
-sudo make install
+git clone --depth 1 https://github.com/kala13x/slog /tmp/slog
+cd /tmp/slog && make && sudo make install
 ```
 
-Current slog works, and 1.9 or newer is required. Upstream vendored slog 1.6.2's
-header and needed the library checked out at that 2018 tag, so building against
-a fresh clone failed with `undefined reference to 'slog'`, and `make` at the
-root of that tag failed too because its Makefile lives in `src/`.
-`src/includes/slog_compat.h` now bridges the two APIs. Verified against 1.9.49.
+Clone the default branch. Do not check out a tag looking for a stable release —
+1.6.2 is from 2018, keeps its Makefile in `src/` rather than the root, and does
+not build with a plain `make`.
 
-A machine that built this project before that switch still has 1.6 in
-`/usr/local`, and installing over it is the fix. The build stops with one line
-saying so rather than letting the mismatch surface a hundred lines later as an
-implicit declaration of `slog_display`. To check what is installed:
+To see what you have:
 
 ```sh
 grep SLOG_VERSION_MINOR /usr/local/include/slog.h
 ```
+
+**Empty output means it is too old**, not that the check passed: 1.6.2 defines
+no version macros at all. Anything from 9 upward is fine. The version macros and
+the tag names disagree upstream — the tag `v1.8.49` carries a header that says
+1.9 — so trust the header, not the tag.
+
+#### If you skipped all that
+
+The build stops on the first source file with the reason and the fix, on one
+long line that is wrapped here:
+
+```
+src/includes/slog_compat.h:44:2: error: #error "slog 1.9 or newer is required.
+The header found is older, most likely left in /usr/local by an earlier build.
+Reinstall it: git clone --depth 1 https://github.com/kala13x/slog /tmp/slog &&
+cd /tmp/slog && make && sudo make install"
+```
+
+A wall of `warning: "slog_none" redefined` follows it, and older builds without
+the guard showed only that wall plus `implicit declaration of function
+'slog_display'` a hundred lines down, naming neither slog nor the version. If
+you are looking at those two messages, this section is the answer.
+
+Why any of this: the project was written against slog 1.6.x, which had
+`slog(int level, ...)` and numeric verbosity levels. Current slog dropped both,
+exposing `slog_display(slog_flag_t, uint8_t, ...)` and filtering by a tag
+bitmask instead, so linking against it failed with `undefined reference to
+'slog'`. `src/includes/slog_compat.h` bridges the two, keeping the numeric
+levels at the call sites and mapping them onto tags.
 
 ### Build
 
@@ -128,6 +157,9 @@ cd Mpeg7Dupes
 make release -l$(nproc)
 sudo cp bin/mpeg7Dupes.elf /usr/local/bin/mpeg7dupes
 ```
+
+If this fails on the first source file, read [slog](#slog) above. Having slog
+installed already is not the same as having a new enough one.
 
 ### Standalone binary
 
