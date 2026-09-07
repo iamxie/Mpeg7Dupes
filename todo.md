@@ -26,6 +26,27 @@
       on one core. Actually fixed in 510db2e.
 
 ## This fork
+- [ ] `matchframes` counts the seed frame twice
+
+      The walk starts with `bcount` at 1 for the seed, runs forward to the end,
+      then returns to the seed and runs backward, counting the seed again. A
+      match that spans a whole file therefore reports one frame more than the
+      file holds, so coverage computed against the file length comes out at
+      100.07 per cent rather than 100.
+
+      Measured over the stage 2 sweep, 48 signatures and 1128 pairs a run:
+      every row that exceeds the file length exceeds it by exactly one, in
+      every run and at every `-x`. Minimum, median and maximum of the overshoot
+      are all 1. Each of those rows also has `whole` 1 and `matchframes` equal
+      to `totalframes`, which is the shape of a walk that covered everything.
+
+      Harmless to any threshold expressed as a fraction, since one frame in a
+      thousand does not move a decision, but it makes the sanity check in
+      `bench/analyse.py` fire on correct output, which costs an investigation
+      every time somebody new looks at the numbers. Fix it when the benchmark
+      is not mid-flight: changing it changes the build, and results from two
+      builds must not be compared.
+
 - [ ] Load each signature once instead of once per comparison
 
       Every pair re-reads and re-parses the second signature from disk, so a

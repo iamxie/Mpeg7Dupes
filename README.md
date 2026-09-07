@@ -11,6 +11,7 @@ what the frames look like rather than what the files contain.
 - [Reading the output](#reading-the-output)
 - [Long runs](#long-runs)
 - [Options](#options)
+- [Which settings to use](#which-settings-to-use)
 - [Known problems](#known-problems)
 
 ## Fork notice
@@ -361,10 +362,17 @@ carried from one candidate to the next, fixed since, and on the 276 pairs where
 11 needed capping before, none do now. It stays because it costs nothing and
 what it catches is silent.
 
-**What it will miss.** The same edits the comparison struggles with. Stacking
-five manipulations at once, scaling down and adding captioned bars and cutting
-an extract and prefixing an advertisement, drops it to a fraction of a percent
-of matched frames, and no threshold recovers that. See Known problems.
+**What it will miss.** Much less than it used to. That sentence previously said
+that stacking five manipulations at once — scaling down, adding captioned bars,
+cutting an extract and prefixing an advertisement — dropped the match to a
+fraction of a per cent, and that no threshold recovered it. That was measured in
+`full` mode. In `longest` mode, which is what this script now uses, 21 of those
+24 pairs come back at 72 to 100 per cent coverage.
+
+The three that do not are all one source, and one of them should have been a
+clean 100 per cent: the two files were the same length and one contained the
+other entirely. So a residual weakness is real, but it is narrow and it is about
+particular footage rather than about the edit. See [benchmark.md](benchmark.md).
 
 ## Long runs
 
@@ -428,7 +436,7 @@ mpeg7dupes -l old.txt -n new.txt -f csv -m full -i 0 > new_dupes.csv
 | `-j`, `--jobs` | every core | Limit the run to this many cores |
 | `-v`, `--verbosity` | | Repeatable, see below |
 | `--version` | | Print the build and exit. Every run also logs it, so a saved result can be traced to the code that made it |
-| `-m`, `--lookup_mode` | `fast` | `fast` stops at the first match, `full` evaluates the whole clip |
+| `-m`, `--lookup_mode` | `fast` | `fast` takes the first candidate that qualifies, `full` chooses between them but stops once one walk has reached an end in each file, `longest` ranks by match length and does not stop early. **Use `longest`**, see [benchmark.md](benchmark.md) |
 | `-i`, `--thDi` | 300 | Minimum matching sequence length. **Set this to 0** |
 | `-k`, `--minScore` | 49 | Rows scoring below this are not printed |
 | `-d`, `--thD` | 9000 | Threshold for one word being similar |
@@ -462,6 +470,28 @@ Thirty-three checks, no ffmpeg needed, about a second. `tests/README.md` says
 what each part covers and what it does not.
 
 The nightly workflow runs it on both architectures before publishing.
+
+## Which settings to use
+
+```sh
+mpeg7dupes -f csv -i 0 -b 0.1 -k 1 -x 290 -m longest -l list.txt
+```
+
+then keep pairs where `matchframes` divided by the frame count of the shorter
+file is at least 0.40.
+
+Measured over 4560 pairs built from 96 videos: 717 of 720 true duplicates found,
+zero false positives. [benchmark.md](benchmark.md) has the corpus, the method,
+the per-treatment results and the limits.
+
+Two results from it worth knowing before changing anything:
+
+- `-m full` finds 596 of those 720 rather than 717, because it stops searching
+  once one walk has reached an end in each file, and a shared advertisement at
+  the head of one video and the tail of another satisfies that.
+- `-x` must not go above 290. The black bars that a higher threshold is meant to
+  see through are a fifth of every frame and identical in every video carrying
+  them, so at 310 unrelated videos start matching each other on the bars alone.
 
 ## Known problems
 

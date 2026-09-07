@@ -243,7 +243,15 @@ def compare(sig_dir: Path, source_bins: list[str], candidate_bins: list[str],
 
         # -i 0 because any other value truncates the match. -k 1 and -b 0.1 so
         # every candidate comes back and the threshold is applied here instead.
-        cmd = [settings["mpeg7dupes"], "-f", "csv", "-m", "full",
+        #
+        # -m longest, not full. full stops searching as soon as one walk has
+        # reached an end in each file, which a shared advertisement satisfies
+        # when it sits at the head of one and the tail of the other; the search
+        # then ends on the advertisement and never finds the real overlap. Over
+        # 4560 pairs at -x 290, full recovered 596 of 720 true duplicates with
+        # no false positives against longest's 718, and its worst true pair was
+        # reported at 0.1 per cent coverage. See benchmark.md.
+        cmd = [settings["mpeg7dupes"], "-f", "csv", "-m", "longest",
                "-i", "0", "-k", "1", "-b", "0.1", "-x", str(settings["thxh"]),
                "-l", "candidates.txt", "-n", "source.txt"]
         if settings["jobs"]:
