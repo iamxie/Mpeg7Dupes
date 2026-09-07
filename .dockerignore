@@ -10,5 +10,6 @@ _vimrc_local.vim
 Dockerfile
 .dockerignore
 README.md
+benchmark.md
 todo.md
 LICENSE
