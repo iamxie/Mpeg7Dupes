@@ -51,6 +51,11 @@ Module.symvers
 Mkfile.old
 dkms.conf
 
+# Working note for the Windows port, handed over out of band rather than
+# committed. It is a snapshot of one session's analysis, not documentation of
+# what the code does; benchmark.md and README.md are that.
+WINDOWS-HANDOFF.md
+
 # Test binary. bin/ holds build output only; *.elf covers the main binary and
 # this one has no extension.
 bin/unitTests
