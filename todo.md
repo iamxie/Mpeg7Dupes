@@ -26,6 +26,78 @@
       on one core. Actually fixed in 510db2e.
 
 ## This fork
+- [ ] Native Windows build
+
+      Compiles and passes its tests on Linux and in Docker. Windows was
+      assessed on 2026-09-08 at commit 5ceaf19 and then shelved, so what
+      follows is static analysis: headers traced with `gcc -M`, symbols read
+      out of a built binary, slog cloned and read. None of it has been put
+      through a Windows compiler, and the first job is to find out how much of
+      it survives one.
+
+      What blocks it, largest first.
+
+      `<argp.h>` at ArgumentParsing.h:9 is GNU only and the single large
+      piece. The usage is shallow, which helps: 14 options, each a short flag
+      with an optional argument, no groups or children, and nothing touched
+      beyond argp_parse, argp_usage, the three ARGP_KEY_ constants,
+      ARGP_ERR_UNKNOWN, error_t and argp_program_version. Either take
+      argp-standalone, which MSYS2 packages and MSVC does not, or write about
+      200 lines and lose the formatted --help along with the --version that
+      main.c deliberately leaves to argp.
+
+      `#pragma omp atomic capture` at main.c:230 is OpenMP 3.1, and MSVC's
+      /openmp is 2.0. That one line decides the compiler: MinGW-w64 handles it,
+      MSVC needs /openmp:llvm or the counter rewritten as a named critical.
+      Every other OpenMP construct here is 2.0 and portable.
+
+      POSIX calls come to about 25 lines. dup and dup2 with STDOUT_FILENO at
+      main.c:31,36; mkdir(work, 0777) at ledger.c:106, where Windows wants
+      _mkdir with no mode and the surrounding path walk splits on / only;
+      __attribute__((optimize)) at signature_lookup.c:104, which MSVC rejects.
+
+      The 27 libavutil and libavfilter headers are a dependency, not a code
+      change. The binary references no symbol from any of them, so headers
+      alone are enough, but Makefile:6 hardcodes -I /usr/include/x86_64-linux-gnu
+      to find them and has to become configurable regardless.
+
+      The Makefile is written in GCC throughout and survives MSYS2 roughly as
+      written. MSVC needs CMake instead, which slog's own CMakeLists.txt shows
+      how to write for this case.
+
+      Worth recording what turned out not to be a problem, because these are
+      what a port like this is normally expected to founder on:
+
+        - No inline assembly anywhere. config.h sets ARCH_X86, which makes
+          mathops.h:48 include x86/mathops.h, but that file is a copy of the
+          generic mathops.h carrying the same include guard, so it expands to
+          nothing. That is also why this builds on aarch64. Do not "fix" it
+          without understanding it.
+        - slog already supports Windows: sixteen _WIN32 branches, windows.h and
+          share.h among its includes, and a CMakeLists.txt with an
+          IF (WIN32 AND MSVC) arm.
+        - Nothing here uses pthread. The -lpthread at Makefile:4 is slog's, and
+          slog uses Windows threads under _WIN32.
+        - No directory walking, no fork, no exec, no signal handlers.
+        - Signature files are opened "rb", so CRLF translation cannot corrupt
+          one.
+
+      Three includes are dead and can go at any time, independently of all of
+      this, which removes three portability questions for nothing:
+      `<signal.h>` at main.h:13, `<sys/types.h>` and `<sys/stat.h>` at
+      utils.h:23-24.
+
+      Rough sizes: MinGW-w64 under MSYS2 is half a day and the estimate is
+      firm; MSVC is two or three days and the estimate is not. MinGW proves the
+      C is portable with much less scaffolding, and everything it finds about
+      the C is equally true for MSVC.
+
+      Still unknown: whether MSVC's C11 covers what this uses, whether the
+      packaged argp-standalone is current enough, and what tests/run.sh and
+      tests/ledger.sh become on Windows, since both are sh. Rewriting them in C
+      beside the existing unit tests would take the shell out of the test suite
+      altogether.
+
 - [ ] `longest` breaks ties between equally long matches nondeterministically
 
       Two runs of the same 96 signatures at the same settings, one on a 14
