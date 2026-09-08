@@ -110,7 +110,10 @@ match, stops, and never looks at the several minutes the two files really share.
 
 `longest` ranks candidates by match length and does not stop early.
 
-Same-source pairs found at `-x 290`, coverage threshold 40 per cent, out of 720:
+Same-source pairs found at `-x 290`, coverage threshold 40 per cent, out of
+720. Signatures taken from the frame as it is, bars included, which is why the
+better of these two is 717 rather than the 720 quoted at the top; cropping is a
+separate change measured in [its own section](#cropping-the-bars):
 
 | Mode | Found | False positives |
 | --- | ---: | ---: |
@@ -184,8 +187,9 @@ were already 831 unrelated pairs above 20 per cent coverage with no bars on
 either side, and cropping leaves that number untouched, so the reason not to go
 above 290 survives its own explanation being incomplete.
 
-Recall and false positives at a fixed 40 per cent coverage threshold, `longest`,
-out of 720 true and 3840 non-duplicate pairs:
+Recall and false positives at a fixed 40 per cent coverage threshold,
+`longest`, out of 720 true and 3840 non-duplicate pairs. Bars still on, as
+everywhere above [Cropping the bars](#cropping-the-bars):
 
 | `-x` | Found | False positives |
 | ---: | --- | ---: |

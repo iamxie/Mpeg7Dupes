@@ -163,9 +163,16 @@ installed already is not the same as having a new enough one.
 
 ### Standalone binary
 
-One is built from `master` every night for x86_64 and aarch64. If you would
-rather not build your own, take it from
-[Releases](https://github.com/iamxie/Mpeg7Dupes/releases).
+If you would rather not build your own, take it from
+[Releases](https://github.com/iamxie/Mpeg7Dupes/releases), where there are two
+kinds for x86_64 and aarch64:
+
+- **`v*`**, a version somebody decided to stand behind. Take these.
+- **`nightly-<commit>`**, built from `master` daily and marked prerelease. They
+  pass the same CI, but nothing has been decided about them.
+
+Both come out of the same workflow, so a release is a nightly that was tagged,
+not a separately built artefact.
 
 To build one:
 
@@ -501,13 +508,15 @@ pair when investigating why something did or did not match, never on a full run.
 
     make test
 
-Runs eighteen unit checks, then compares six checked-in signature fixtures
-against each other and checks the result against named properties and a
-recorded copy of the whole output, then checks that `-s` makes a run resumable.
-Thirty-three checks, no ffmpeg needed, about a second. `tests/README.md` says
+Runs nineteen unit checks, twelve on the ledger and seven on the comparison's
+inner functions, then compares six checked-in signature fixtures against each
+other and checks the result against named properties and a recorded copy of the
+whole output, then checks in eight more that `-s` makes a run resumable.
+Thirty-nine checks, no ffmpeg needed, about a second. `tests/README.md` says
 what each part covers and what it does not.
 
-The nightly workflow runs it on both architectures before publishing.
+The build workflow runs it on both architectures before publishing, for
+nightlies and tagged releases alike.
 
 ## Which settings to use
 
