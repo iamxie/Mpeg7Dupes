@@ -75,6 +75,16 @@ import sys
 import tomllib
 from pathlib import Path
 
+# Sibling script. Both live in tools/, and Python puts the script's own
+# directory on the path, so this resolves when find_reuse.py is run from
+# anywhere. Guarded because copying find_reuse.py out on its own is a
+# reasonable thing to do, and losing bar detection should cost a warning
+# rather than a traceback.
+try:
+    import detect_bars
+except ImportError:
+    detect_bars = None
+
 DEFAULTS = {
     "fps": 5.0,
     "min_coverage": 40.0,
@@ -83,6 +93,11 @@ DEFAULTS = {
     # detected to always detected, and added no false positives. Below it they
     # are missed entirely rather than partly.
     "thxh": 290,
+    # Crop bars off before fingerprinting. Measured over 4560 pairs: without
+    # it the best any threshold managed was 717 of 720 true duplicates and no
+    # arrangement separated the classes; with it, 720 of 720 with no false
+    # positives and 13.9 points of daylight between them. See benchmark.md.
+    "crop_bars": True,
     "jobs": 0,  # 0 leaves it to mpeg7dupes, which uses every core
     "overwrite": False,
     "extensions": ["mp4", "mkv", "avi", "mov", "wmv", "flv", "ts", "m4v", "webm", "mpg", "mpeg"],
@@ -116,7 +131,14 @@ def build_parser() -> argparse.ArgumentParser:
                         "the hits, but it is the only way to tell a candidate "
                         "that was checked and cleared from one that was never "
                         "read at all.")
-    p.add_argument("--overwrite", action="store_true", help="Recompute signatures that already exist.")
+    p.add_argument("--no-crop-bars", dest="crop_bars", action="store_false",
+                   default=None,
+                   help="Do not look for bars along the top and bottom, and "
+                        "do not crop them off before fingerprinting. On by "
+                        "default; turning it off costs accuracy on any video "
+                        "that has them.")
+    p.add_argument("--overwrite", action="store_true", default=None,
+                   help="Recompute signatures that already exist.")
     p.add_argument("--config", metavar="FILE", help="toml settings file.")
     p.add_argument("--ffmpeg", metavar="PATH", help="Path to ffmpeg.")
     p.add_argument("--ffprobe", metavar="PATH", help="Path to ffprobe.")
@@ -137,7 +159,10 @@ def load_settings(args: argparse.Namespace) -> dict:
 
     for key in settings:
         value = getattr(args, key, None)
-        if value not in (None, False):
+        # `is not None`, not truthiness: --no-crop-bars has to be able to say
+        # False and override a toml that says true. Every flag here defaults to
+        # None for the same reason, so an absent one leaves the toml alone.
+        if value is not None:
             settings[key] = value
     return settings
 
@@ -168,6 +193,35 @@ def sig_name(path: Path) -> str:
     return hashlib.sha1(str(path.resolve()).encode()).hexdigest()[:16] + ".bin"
 
 
+def crop_for(src: Path, settings: dict) -> str:
+    """The crop filter for this video, or "" for none and for cannot tell.
+
+    Bars are worth removing because they are the same black in every video that
+    has them, so two unrelated ones agree on a fifth of every frame before the
+    picture is considered, and a bar shifts the picture inside the frame so the
+    same video with and without one no longer lines up. Both effects are
+    measured in benchmark.md.
+
+    Anything other than a confident answer returns "": a video too still to
+    read, a video ffprobe cannot open, a detector that is not importable. The
+    cost of guessing wrong here is cropping away picture, which is worse than
+    leaving bars on.
+    """
+    if not settings["crop_bars"] or detect_bars is None:
+        return ""
+    try:
+        r = detect_bars.analyse(src, points=6, per_point=12,
+                                threshold=detect_bars.THRESHOLD,
+                                min_fraction=0.02)
+    except Exception as exc:                      # noqa: BLE001
+        print(f"  note     {src.name}: bar detection failed, {exc}",
+              file=sys.stderr)
+        return ""
+    if r["status"] != "ok" or not r["bar_fraction"]:
+        return ""
+    return f"crop=iw:{r['picture_height']}:0:{r['top']}"
+
+
 def make_signature(src: Path, sig_dir: Path, settings: dict, index: dict) -> dict | None:
     """Compute one signature and return its index entry, or reuse a current one."""
     name = sig_name(src)
@@ -178,6 +232,11 @@ def make_signature(src: Path, sig_dir: Path, settings: dict, index: dict) -> dic
              and entry["size"] == stat.st_size
              and entry["mtime"] == int(stat.st_mtime)
              and entry["fps"] == settings["fps"]
+             # Not re-detected to check this: the video is unchanged, so the
+             # crop would come out the same. Only the setting can differ, and
+             # flipping it has to invalidate, because a signature taken with
+             # bars cannot be compared against one taken without.
+             and entry.get("crop_bars") == settings["crop_bars"]
              and (sig_dir / name).is_file()
              and (sig_dir / name).stat().st_size > 0)
     if fresh:
@@ -189,11 +248,17 @@ def make_signature(src: Path, sig_dir: Path, settings: dict, index: dict) -> dic
         print(f"  skipped  {src.name}: {exc}", file=sys.stderr)
         return None
 
+    # One pass. The crop happens inside the filtergraph, so no cropped copy of
+    # the video is ever written and no second generation of encoding loss is
+    # added. Detection costs about a twentieth of the fingerprinting, because
+    # it decodes 72 sampled frames rather than the whole file.
+    crop = crop_for(src, settings)
+    chain = f"{crop}," if crop else ""
     # Only the filename goes in the filtergraph, with cwd locating the output,
     # because a Windows path in there needs escaping that is easy to get wrong.
     cmd = [settings["ffmpeg"], "-nostdin", "-hide_banner", "-loglevel", "error",
            "-i", str(src.resolve()), "-map", "0:v:0", "-an",
-           "-vf", f"fps={settings['fps']},signature=filename={name}",
+           "-vf", f"{chain}fps={settings['fps']},signature=filename={name}",
            "-f", "null", "-"]
     done = subprocess.run(cmd, cwd=sig_dir, capture_output=True, text=True)
     if done.returncode != 0 or not (sig_dir / name).is_file():
@@ -201,8 +266,15 @@ def make_signature(src: Path, sig_dir: Path, settings: dict, index: dict) -> dic
               file=sys.stderr)
         return None
 
+    if crop:
+        # The caller draws a progress counter with a carriage return and no
+        # newline, so anything printed here has to start its own line or it
+        # lands in the middle of that one.
+        print(f"\n  bars     {src.name}: {crop}")
+
     entry = {"path": str(src.resolve()), "seconds": seconds,
              "frames": round(seconds * settings["fps"]), "fps": settings["fps"],
+             "crop": crop, "crop_bars": settings["crop_bars"],
              "size": stat.st_size, "mtime": int(stat.st_mtime)}
     index[name] = entry
     return entry

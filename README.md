@@ -394,6 +394,12 @@ carried from one candidate to the next, fixed since, and on the 276 pairs where
 11 needed capping before, none do now. It stays because it costs nothing and
 what it catches is silent.
 
+**Bars.** It crops them off before fingerprinting, because a bar shifts the
+picture inside the frame and stops two copies lining up. `--no-crop-bars` turns
+that off. Detection costs about a twentieth of the fingerprinting and the crop
+rides along in the same ffmpeg pipeline, so no cropped copy of the video is
+written.
+
 **What it will miss.** Much less than it used to. That sentence previously said
 that stacking five manipulations at once — scaling down, adding captioned bars,
 cutting an extract and prefixing an advertisement — dropped the match to a
@@ -505,18 +511,27 @@ The nightly workflow runs it on both architectures before publishing.
 
 ## Which settings to use
 
+Crop any bars off the top and bottom first, then
+
 ```sh
 mpeg7dupes -f csv -i 0 -b 0.1 -k 1 -x 290 -m longest -l list.txt
 ```
 
-then keep pairs where `matchframes` divided by the frame count of the shorter
+and keep pairs where `matchframes` divided by the frame count of the shorter
 file is at least 0.40.
 
-Measured over 4560 pairs built from 96 videos: 717 of 720 true duplicates found,
-zero false positives. [benchmark.md](benchmark.md) has the corpus, the method,
-the per-treatment results and the limits.
+Measured over 4560 pairs built from 96 videos: **720 of 720** true duplicates
+found, zero false positives. [benchmark.md](benchmark.md) has the corpus, the
+method, the per-treatment results and the limits.
 
-Two results from it worth knowing before changing anything:
+Three results from it worth knowing before changing anything:
+
+- Cropping the bars is worth three of those 720, and more than that it is the
+  difference between classes that separate and classes that overlap. A bar
+  shifts the picture inside the frame, so the same video with and without one
+  stops lining up. `tools/detect_bars.py` finds them by looking for rows that
+  do not move, which works on a bar with advertising text in it where
+  `cropdetect` does not. `tools/find_reuse.py` does this for you.
 
 - `-m full` finds 596 of those 720 rather than 717, because it stops searching
   once one walk has reached an end in each file, and a shared advertisement at

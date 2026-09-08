@@ -42,6 +42,38 @@ fps = 5.0
 # than to miss one.
 min_coverage = 40.0
 
+# Look for bars along the top and bottom of each video and crop them off
+# before fingerprinting.
+#
+# Bars do two things to a comparison, and both are worth undoing. They are the
+# same black in every video that carries them, about a fifth of the frame, so
+# two unrelated videos with bars agree on a fifth of every frame before the
+# picture is looked at. And a bar shifts the picture inside the frame, so one
+# copy of a video with bars and one without no longer line up.
+#
+# Measured over all 4560 pairs of the 96 video corpus, at -x 290 -m longest
+# with the 40 per cent threshold below:
+#
+#              true duplicates found   false positives   separation
+#   bars left        717 of 720               0            -10.3 points
+#   bars cropped     720 of 720               0            +13.9 points
+#
+# The three pairs it recovers were all one source edited with bars among four
+# other manipulations; the worst of them was reported at 30.6 per cent where
+# the right answer is 100, and comes back at exactly 100 once the bars are
+# gone. Negative separation means no threshold splits the classes cleanly, so
+# this is the difference between a rule that works and one that only mostly
+# works.
+#
+# Detection costs about a twentieth of fingerprinting, because it samples 72
+# frames rather than decoding the file, and the crop then rides along in the
+# same ffmpeg pipeline. No cropped copy of the video is written.
+#
+# It is right about whether a video has bars in 96 of 96, and about the exact
+# height in 95 of 96, worst error one row. Where it cannot tell, a video too
+# still for anything to move, it crops nothing. See tools/detect_bars.py.
+crop_bars = true
+
 # Frame similarity threshold, passed to mpeg7dupes as -x.
 #
 # This matters more than it looks. Measured over 96 edited videos, raising it

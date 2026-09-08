@@ -9,19 +9,25 @@ compared as all 4560 pairs, with `mpeg7dupes v0.1 b2`. Section
 
 ## The answer
 
+Crop any bars off the top and bottom first, then
+
 ```sh
 mpeg7dupes -f csv -i 0 -b 0.1 -k 1 -x 290 -m longest -l list.txt
 ```
 
-then keep pairs whose **coverage** is at least 40 per cent, where
+and keep pairs whose **coverage** is at least 40 per cent, where
 
 ```
 coverage = matchframes / min(frames in file A, frames in file B)
 ```
 
-Over 4560 pairs this finds **717 of 720 true duplicates with zero false
-positives**. `tools/find_reuse.py` applies exactly this and computes coverage
-for you.
+Over 4560 pairs this finds **720 of 720 true duplicates with zero false
+positives**, with 13.9 points between the weakest duplicate and the strongest
+non-duplicate. `tools/find_reuse.py` does all of it, cropping included.
+
+Skipping the crop costs three of the 720 and, worse, leaves the classes
+overlapping, so no threshold separates them cleanly. See
+[Cropping the bars](#cropping-the-bars).
 
 Each flag, and why:
 
@@ -32,7 +38,8 @@ Each flag, and why:
 | `-k` | `1` | minScore. Same reason. |
 | `-x` | `290` | The last threshold before black bars start matching unrelated videos to each other. This is the interesting one; see [The threshold trade-off](#the-threshold-trade-off). |
 | `-m` | `longest` | `full` stops the search too early on a common real-world layout and loses 17 per cent of true duplicates. See [Mode](#mode-longest-beats-full). |
-| coverage | `≥ 0.40` | Sits in the empty band between pairs that share only an advertisement (37.1% at most) and genuine duplicates (48.0% at least, for the tightest legitimate case). |
+| coverage | `≥ 0.40` | Sits in the empty band between pairs that share only an advertisement (34.1% at most) and genuine duplicates (48.0% at least, for the tightest legitimate case). |
+| crop | before all of it | Bars are a fifth of the frame and identical in every video carrying them, and they shift the picture inside the frame so a copy with bars and one without stop lining up. `tools/detect_bars.py` finds them. |
 
 ## The corpus
 
@@ -166,8 +173,16 @@ At `-x 310` the twelve highest-scoring unrelated pairs all involve bars: ten are
 
 So the ceiling changes hands between 290 and 310. Up to 290 it is set by pairs
 that really do share an advertisement, which is honest and can be filtered on
-coverage. From 310 it is set by black bars, which cannot be filtered on anything
-because the match is real at the frame level and simply means nothing.
+coverage. From 310 it is set by black bars, where the match is real at the frame
+level and means nothing.
+
+An earlier version of this said the bars could not be filtered on anything. That
+was wrong: they can be cropped off before the signature is taken, and doing so
+is worth more than it appeared here. [Cropping the bars](#cropping-the-bars) has
+the measurements. It does not raise the ceiling on `-x`, though. At 350 there
+were already 831 unrelated pairs above 20 per cent coverage with no bars on
+either side, and cropping leaves that number untouched, so the reason not to go
+above 290 survives its own explanation being incomplete.
 
 Recall and false positives at a fixed 40 per cent coverage threshold, `longest`,
 out of 720 true and 3840 non-duplicate pairs:
@@ -225,11 +240,11 @@ came back as 88, 54 and 33, because the walk extends a few frames past what is
 really shared. A 40 per cent setting therefore fires at roughly 36 per cent of
 real use.
 
-## Known weakness
+## The weakness that led to cropping
 
-Three of 720 true duplicates fall below 40 per cent at `-x 290 -m longest`. All
-three are the same source (`20190710`) with the same treatment pair
-(`seg` against `combo`):
+Without the crop, three of 720 true duplicates fall below 40 per cent at
+`-x 290 -m longest`. All three are the same source (`20190710`) with the same
+treatment pair (`seg` against `combo`), and all three are fixed by cropping:
 
 | Pair | Coverage | Shared content actually recovered |
 | --- | ---: | ---: |
@@ -240,12 +255,101 @@ three are the same source (`20190710`) with the same treatment pair
 The second one is the clearest statement of the problem: `combo` contains the
 entire `seg` body, both files are 1800 frames, and the correct answer is 100 per
 cent. Every one of the other five sources returns exactly 100 per cent on that
-same pairing. So this is not a normalisation artefact and not a cross-length
-artefact — it is the frame-level walk losing the trail through `combo`'s five
-stacked degradations on one particular source's material.
+same pairing.
 
-Anyone reproducing this with different footage may not see it at all, and may
-see something else instead.
+This was first read as the frame-level walk losing the trail through `combo`'s
+five stacked degradations on one particular source's footage. That reading was
+wrong. One of those five is black bars, and cropping them off is enough on its
+own: the same pair comes back at 1800 of 1800 frames, exactly 100 per cent. The
+footage was never the problem. See [Cropping the bars](#cropping-the-bars).
+
+With the bars cropped, no true duplicate in the corpus falls below the 40 per
+cent threshold.
+
+## Cropping the bars
+
+Everything above was measured on signatures taken from the videos as they are.
+Taking them from the picture instead, with the bars cropped off first, changes
+the answer.
+
+`tools/detect_bars.py` finds the bars. It looks for rows that do not move rather
+than rows that are dark, because a bar with advertising text in it is not dark
+and ffmpeg's `cropdetect` stops at the first line of the text. Over the 96
+videos it is right about whether there are bars 96 times, and right about the
+exact height 95 times, worst error one row. The crop then rides along in the
+same ffmpeg pipeline that takes the fingerprint, so nothing is written to disk
+and no second generation of encoding is added; detection costs about a twentieth
+of fingerprinting, since it samples 72 frames rather than decoding the file.
+
+All 4560 pairs, `-m longest`, coverage threshold 40 per cent. Separation is the
+weakest true duplicate minus the strongest non-duplicate, so a negative number
+means the classes overlap and no threshold splits them:
+
+| `-x` | | Weakest duplicate | Strongest other | Separation | Found | False positives |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 250 | as is | 14.8% | 30.1% | −15.2 | 689/720 | 0 |
+| 250 | cropped | 23.3% | 28.9% | −5.5 | 700/720 | 0 |
+| 270 | as is | 18.2% | 37.1% | −18.9 | 706/720 | 0 |
+| 270 | cropped | 31.6% | 30.1% | **+1.4** | 716/720 | 0 |
+| **290** | as is | 26.8% | 37.1% | −10.3 | 717/720 | 0 |
+| **290** | **cropped** | **48.0%** | **34.1%** | **+13.9** | **720/720** | **0** |
+| 310 | as is | 48.0% | 50.1% | −2.1 | 720/720 | 3 |
+| 310 | cropped | 48.0% | 37.1% | **+11.0** | 720/720 | 0 |
+| 330 | as is | 48.0% | 100.0% | −52.0 | 720/720 | 159 |
+| 330 | cropped | 48.0% | 72.5% | −24.5 | 720/720 | 38 |
+| 350 | as is | 48.0% | 100.0% | −52.0 | 720/720 | 1376 |
+| 350 | cropped | 48.0% | 96.0% | −48.0 | 720/720 | 1090 |
+
+Three things in that table are worth saying out loud.
+
+**The gain is on the duplicates, not the false positives.** At 290 there were no
+false positives either way. What cropping does is lift the weakest true
+duplicate from 26.8 to 48.0 per cent, and that is what turns an overlap into a
+gap. A bar shifts the picture inside the frame, so the same content with and
+without one stops lining up, and the signature is comparing different framings.
+
+**48.0 per cent is now the floor, and it is not a failure.** It is
+`L5__seg` against a 5 minute file carrying the advertisement: the middle 60 per
+cent of a 5 minute cut and of a 10 minute cut of the same source overlap for 120
+seconds, which is 600 frames of the 1250 in the shorter file. The comparison
+finds all 600. Nothing is being missed there, so this is where the corpus stops
+having anything more to give.
+
+**It does not raise the ceiling on `-x`.** 330 and 350 stay unusable. Cropping
+removes the bars from the top of the false positive ranking — at 310 the pairs
+above 20 per cent coverage with bars on both sides fall from 90 to 15 — but at
+350 there were already 831 unrelated pairs above 20 per cent with no bars
+anywhere, and that number does not move. Bars were the loudest part of the
+problem at 310, not the whole of it at 350.
+
+### What this rests on
+
+The separation at 290 is 13.9 points, bounded below by 48.0 per cent and above
+by 34.1 per cent. Both numbers come from the same denominator, the length of a
+file carrying the advertisement, which is 900 frames of body plus A frames of
+advertisement:
+
+```
+strongest advertisement-only pair   =  A  / (900 + A)
+weakest true duplicate              = 600 / (900 + A)
+```
+
+The advertisement here is 70 seconds, so 350 frames, and the two work out at 28
+and 48 per cent. They meet at A = 600, an advertisement of **two minutes**, and
+past that they are the wrong way round.
+
+So coverage separates these classes because this corpus's advertisement is short
+relative to the body it is attached to, not because the method distinguishes
+sharing-because-same-video from sharing-because-same-insert. It cannot: it
+measures how much is shared, not what. A corpus built with longer inserts would
+need something else, most likely where the shared region sits in each file
+rather than how big it is.
+
+The measured advertisement-only ceiling is 34.1 per cent against the 28 the
+arithmetic predicts. The difference is the walk running past the end of what is
+really shared: median `matchframes` for those pairs is 353 against an
+advertisement of 350, but the worst is 427. Six of the 13.9 points are being
+spent on that overshoot.
 
 ## Scale invariance
 

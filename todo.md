@@ -26,6 +26,32 @@
       on one core. Actually fixed in 510db2e.
 
 ## This fork
+- [ ] `longest` breaks ties between equally long matches nondeterministically
+
+      Two runs of the same 96 signatures at the same settings, one on a 14
+      core machine and one on 8 cores in a container, agreed on all 4560 pairs
+      and disagreed about three of them. `matchframes` was identical in all
+      three, 900, 1800 and 900; `goodframes` and `meandist` were not, so a
+      different candidate of the same length won each time.
+
+      Twenty four further pairs came back with the two files in the opposite
+      order, which changes `score` and `offset` because both are measured from
+      whichever file is first. That part is expected: the outer loop is
+      parallel and nothing promises an order.
+
+      The tie is not. `MODE_LONGEST` keeps a candidate when `bcount >
+      bestmatch.matchframes`, so among equals the first one to be evaluated
+      wins, and which that is depends on thread scheduling. All three cases
+      were `seg` against `segadhead`, where the shared body is the whole of the
+      shorter file and several placements match it equally well.
+
+      Nothing measured here depends on it: coverage is computed from
+      `matchframes`, which was reproducible across all 4560 pairs, and both
+      candidates are correct answers. It is worth fixing anyway, because a
+      comparison that cannot be reproduced exactly is a bad foundation for
+      deciding whether a change helped. Breaking the tie on `meandist` would
+      make it deterministic and would pick the better of the two.
+
 - [ ] `matchframes` counts the seed frame twice
 
       The walk starts with `bcount` at 1 for the seed, runs forward to the end,
