@@ -1,0 +1,69 @@
+name: CI
+
+# Fast verification on every push and pull request: build, the unit tests,
+# the signature suites, the Python tool suites, and the real-tool smoke test
+# that takes three synthetic clips from video to result through
+# tools/find_reuse.py twice. Both architectures, in parallel.
+#
+# This workflow publishes nothing and holds no write permission; nightlies
+# and tagged releases come out of static-build.yml by their own route, which
+# runs the same tests on the static binary it is about to publish. The video
+# benchmark is not run here or there: it takes hours on private material and
+# belongs to benchmark.md.
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  # The same pin as static-build.yml and the Dockerfile. slog's tags and its
+  # version macros disagree: v1.8.49 carries a header that says 1.9.49, and
+  # master is that same commit at the time of writing. Cloning the default
+  # branch instead would let two builds of one source differ without saying
+  # so. Bump this on purpose, and in all three places.
+  SLOG_REF: v1.8.49
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false     # one architecture failing should not hide the other
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          # libavcodec-dev and libavfilter-dev are here for headers only; the
+          # binary references no symbol from either. ffmpeg is for the smoke
+          # test, and the runner's python3 runs the tool suites.
+          sudo apt-get install -y --no-install-recommends \
+            build-essential git ca-certificates libavcodec-dev libavfilter-dev ffmpeg
+
+      - name: Build and install slog
+        run: |
+          git clone --quiet --depth 1 --branch "$SLOG_REF" https://github.com/kala13x/slog /tmp/slog
+          cd /tmp/slog
+          echo "slog $SLOG_REF at $(git rev-parse --short HEAD)"
+          make
+          sudo make install
+
+      # Builds the release binary and runs everything that needs no ffmpeg.
+      # REQUIRE_PYTHON=1 fails the run if the Python suites cannot execute
+      # rather than letting them skip.
+      - name: Build and test
+        run: make test REQUIRE_PYTHON=1
+
+      # The one test that runs the real ffmpeg. REQUIRE_FFMPEG=1 for the same
+      # reason as above.
+      - name: Smoke test
+        run: make smoke REQUIRE_FFMPEG=1

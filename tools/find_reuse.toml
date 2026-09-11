@@ -33,7 +33,20 @@ fps = 5.0
 # into that cluster. Lowering it to 30 admits 25 advertisement-only pairs.
 #
 # At 40 the result over those 4560 pairs is 717 of 720 true duplicates found
-# with no false positives.
+# with no false positives, bars left on; 720 of 720 with them cropped. Those
+# pairs are the corpus the settings were tuned on, six sources and eight
+# treatments: read the figures as a fit to that material, not a forecast for
+# yours.
+#
+# Two independent sets were measured since. On both, 40 held for five minute
+# sources and the 60 s advertisement. On the second set and a length test on
+# its sources, sources under about two minutes whose picture has a common
+# light layout, night timelapses and a basketball video game, were reported
+# inside unrelated videos of a similar layout: in 5 to 10% of unrelated
+# candidates from 10 to 60 s, 1.5% at 90 s, none at 120 s. Two unrelated
+# videos can share a stretch of about 40 s of frames that only look alike, and
+# that is 40% of a 100 s source. Look at such a match before acting on it.
+# See benchmark.md, Second independent validation.
 #
 # Coverage runs a little high: clips using 86%, 50% and 30% of the source came
 # back as 88%, 54% and 33%, because the walk that extends a match carries a few
@@ -74,6 +87,31 @@ min_coverage = 40.0
 # still for anything to move, it crops nothing. See tools/detect_bars.py.
 crop_bars = true
 
+# Let mpeg7dupes' coarse filter skip a pair of segments before the frame by
+# frame walk, which it does when three of their five coarse words share a
+# tenth or less.
+#
+# On by default. On the corpus the settings were tuned on it kept every true
+# match and took about two thirds off the comparison time, 101 s against 280 s
+# over 1128 pairs. That corpus is six textured sources, though, and footage so
+# monotonous that a coarse word holds only a few bits is the material that
+# could defeat it.
+#
+# The first independent validation set, six other sources with a sunset from a
+# locked-off camera and a night sky among them, showed both sides. With the
+# filter off, 7 of the 256 matches it should have made and had missed came
+# back, all on the sunset and 5 of them lost to a bar-detector fault fixed
+# since, in detector version 2; and 204 false ones appeared, clips of 10 and 20 s
+# and an 8 s opening reported inside unrelated videos at 40 to 100 per cent.
+# For this question the filter guards short sources as well as saving time,
+# so off is not the safe side. See benchmark.md, Independent validation.
+#
+# false, or --no-coarse-filter, passes -d 10001, which turns the filter off,
+# so a run can check what it costs on your material; the record says which way
+# each run was made. Expect the comparison to take about three times as long.
+# Fingerprinting costs the same either way.
+coarse_filter = true
+
 # Frame similarity threshold, passed to mpeg7dupes as -x.
 #
 # This matters more than it looks. Measured over 96 edited videos, raising it
@@ -96,6 +134,12 @@ crop_bars = true
 # pairs that really do share an advertisement, which is honest. From 310 it is
 # set by black bars, which is not. Do not raise this past 290 without
 # rerunning the sweep. See benchmark.md.
+#
+# 290 is loose for short sources, though: on the second validation set, frames
+# that share only a layout, a dark sky over a lighter foreground, passed it
+# often enough to put sources under about two minutes inside unrelated videos.
+# A lower value removed those matches only by also losing reframed copies, so
+# it stays. See min_coverage above.
 thxh = 290
 
 # Cores for the comparison. 0 leaves it to mpeg7dupes, which uses every one.

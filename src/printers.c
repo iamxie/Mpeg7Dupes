@@ -2,56 +2,6 @@
 
 FILE *resultStream = NULL;
 
-void
-printBeautifulHeader () {
-    char strBuffer[170] = { 0 };
-    fprintf(resultStream, "%46.46s %46.46s %9.9s %12.12s %12.12s %5.5s\n",
-        padStr("First signature", strBuffer, 40, ' '),
-        padStr("Second signature",  &strBuffer[40], 51, ' '),
-        padStr("score",  &strBuffer[91], 9, ' '),
-        padStr("time 1 [s]", &strBuffer[100], 12, ' '),
-        padStr("time 2 [s]", &strBuffer[112], 12, ' '),
-        "whole");
-}
-
-void
-printBeautiful(MatchingInfo *info, StreamContext* sc, char *file1,\
-    char *file2, int isFirst, int isLast, int isMoreThanOne) {
-
-    unsigned int selectedFormatStr = 0;
-    char *firstFilePath = file1;
-    char *formatStrings[] = {
-        // First more than one
-        "%-46.46s \u2533 %-46.46s %7d %12.2f %12.2f %1d\n",
-        "%-46.46s \u2501 %-46.46s %7d %12.2f %12.2f %1d\n",
-        // last
-        "%-46.46s \u2517 %-46.46s %7d %12.2f %12.2f %1d\n",
-        "%-46.46s \u2523 %-46.46s %7d %12.2f %12.2f %1d\n"
-    };
-
-    if (info->score) {
-        if (isFirst) {
-            if (isMoreThanOne) {
-                selectedFormatStr = 0;
-            } else {
-                selectedFormatStr = 1;
-            }
-        } else if (isLast) {
-            // We don't want to always print the first file path
-            firstFilePath = " ";
-            selectedFormatStr = 2;
-        } else {
-            firstFilePath = " ";
-            selectedFormatStr = 3;
-        }
-
-        fprintf(resultStream, formatStrings[selectedFormatStr], firstFilePath, file2, info->score,\
-                ((double) info->first->pts * sc[0].time_base.num) / sc[0].time_base.den,
-                ((double) info->second->pts * sc[1].time_base.num) / sc[1].time_base.den,
-                info->whole);
-    }
-}
-
 /* Seconds for one frame, or -1 when there is no frame to report. A stored
    match always has at least one good frame under any thIt above zero, so the
    -1 is there to keep a NULL out of the arithmetic rather than because it is
@@ -76,13 +26,34 @@ printCSVHeader () {
         "begin 1 [s]", "end 1 [s]", "begin 2 [s]", "end 2 [s]", "whole");
 }
 
+/* A path goes into the CSV as it is unless it holds a comma, a double quote
+   or a line break, in which case it is quoted with inner quotes doubled, as
+   RFC 4180 has it. Names that need no quoting come out exactly as before, so
+   a recorded output does not move. */
+static void
+printCSVField(const char *text) {
+    if (!strpbrk(text, ",\"\r\n")) {
+        fputs(text, resultStream);
+        return;
+    }
+    fputc('"', resultStream);
+    for (const char *p = text; *p; ++p) {
+        if (*p == '"')
+            fputc('"', resultStream);
+        fputc(*p, resultStream);
+    }
+    fputc('"', resultStream);
+}
+
 void
 printCSV(MatchingInfo *info, StreamContext* sc, char *file1, char *file2,\
     int isFirst, int isLast, int isMoreThanOne) {
-    if (info->score)
+    if (info->score) {
+        printCSVField(file1);
+        fputc(',', resultStream);
+        printCSVField(file2);
         fprintf(resultStream,
-                "%s,%s,%d,%d,%d,%d,%d,%.6f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%d\n",
-                file1, file2,
+                ",%d,%d,%d,%d,%d,%.6f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%d\n",
                 info->score,
                 info->matchframes,
                 info->goodframes,
@@ -100,6 +71,7 @@ printCSV(MatchingInfo *info, StreamContext* sc, char *file1, char *file2,\
                 frameSeconds(info->secondBegin, &sc[1]),
                 frameSeconds(info->secondEnd, &sc[1]),\
                 info->whole);
+    }
 }
 
 void

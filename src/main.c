@@ -1,14 +1,58 @@
 #include "main.h"
 
+#include <errno.h>
+#include <inttypes.h>
+
 struct arguments args = {0};
 struct ledger ledger = {0};
+
+static const char *
+modeName(int mode) {
+    switch (mode) {
+        case MODE_FAST: return "fast";
+        case MODE_FULL: return "full";
+        case MODE_LONGEST: return "longest";
+        default: return "?";
+    }
+}
+
+/* What this run is, for the ledger's record: the build as it calls itself,
+   a digest of the binary that is actually running, and every setting that
+   changes the output. The digest is what tells two builds of uncommitted
+   code apart, which the version string cannot. */
+static void
+describeRun(struct ledgerRun *run) {
+    long size = 0;
+    uint64_t digest = ledgerHashFile("/proc/self/exe", &size);
+
+    snprintf(run->version, sizeof(run->version), "%s",
+        MPEG7DUPES_VERSION_STRING);
+    if (digest)
+        snprintf(run->binary, sizeof(run->binary), "%016" PRIx64, digest);
+    else
+        snprintf(run->binary, sizeof(run->binary), "unknown");
+    snprintf(run->params, sizeof(run->params),
+        "-m %s -d %d -c %d -x %d -i %d -b %g -k %d",
+        modeName(args.mode), args.thD, args.thDc, args.thXh, args.thDi,
+        args.thIt, args.minScore);
+}
+
+/* A pair is only done once its row is on its way out and its line is in the
+   ledger. A write that fails is not a pair that did not match, so the run
+   stops rather than record it as done. */
+static void
+stopOnWriteError(const char *what, const char *path) {
+    slog_fatal(1, "Cannot write %s%s%s: %s", what, path ? " " : "",
+        path ? path : "", strerror(errno));
+    exit(1);
+}
 
 int
 main(int argc, char **argv) {
     struct fileIndex index = {0};
     void (*printFunctionPointer)(MatchingInfo *info, StreamContext* sc,\
         char *file1, char *file2, int isFirst, int isLast, int isMoreThanOne)\
-        = printBeautiful;
+        = printCSV;
 
     /* slog writes with printf and offers no way to retarget it, so results and
        log lines both landed on stdout and `> out.csv` captured a mix of the two.
@@ -66,7 +110,11 @@ main(int argc, char **argv) {
         initFileIterator(&incrementalIndex, args.incrementalFile);
         tmpIndex = mergeFileIterators(&incrementalIndex, &index);
         tmpIndex.maxIndexA = getNumberOfLinesFromFilename(args.incrementalFile);
+        /* The merge copies both tables, so both inputs go. The incremental
+           one used to be kept, which LeakSanitizer reports and which made
+           every -n run exit 1 under make test DEBUG=1. */
         terminateFileIterator(&index);
+        terminateFileIterator(&incrementalIndex);
         index = tmpIndex;
     }
 
@@ -110,17 +158,14 @@ main(int argc, char **argv) {
         slog_info(4, "Using %d of %d cores", jobs, availableJobs);
     }
 
-    if (args.outputFormat == CSV) {
-        printCSVHeader();
-        printFunctionPointer = printCSV;
-    } else {
-        printBeautifulHeader();
-        printFunctionPointer = printBeautiful;
-    }
+    printCSVHeader();
+    printFunctionPointer = printCSV;
 
     processFiles(&index, printFunctionPointer);
     terminateFileIterator(&index);
 
+    if (fflush(resultStream) != 0 || ferror(resultStream))
+        stopOnWriteError("the results", NULL);
     slog_info(4, "Signature processing finished");
 
     return 0;
@@ -145,7 +190,23 @@ processFiles(struct fileIndex *index, void (*printFunctionPointer)
     long skippedPairs = 0;
 
     if (args.ledgerFile) {
-        ledgerOpen(&ledger, args.ledgerFile, (size_t) totalPairs);
+        char why[2 * MAX_PATH_LENGTH + 1024];
+        struct ledgerRun run;
+
+        describeRun(&run);
+        if (!ledgerOpen(&ledger, args.ledgerFile, (size_t) totalPairs, &run,
+                why, sizeof(why))) {
+            slog_fatal(1, "%s", why);
+            exit(1);
+        }
+        /* Every input, before a single pair is skipped: a changed signature
+           makes every recorded pair it took part in stale. */
+        for (int i = 0; i < index->maxIndexB; ++i)
+            if (!ledgerNoteInput(&ledger, &index->pathsMatrix[i*MAX_PATH_LENGTH],
+                    why, sizeof(why))) {
+                slog_fatal(1, "%s", why);
+                exit(1);
+            }
         /* Counted up front so the progress line and the ETA describe the work
            this run will actually do, not the work the whole batch would. */
         for (int i = index->indexA + 1; i < index->maxIndexA; ++i) {
@@ -156,6 +217,11 @@ processFiles(struct fileIndex *index, void (*printFunctionPointer)
                     skippedPairs++;
         }
         totalPairs -= skippedPairs;
+        if (skippedPairs)
+            slog_info(4, "Resuming: %ld pairs already in the ledger are "
+                "skipped, so this run's output holds only the rest. Append "
+                "it to the earlier output rather than overwriting it.",
+                skippedPairs);
     }
 
     long donePairs = 0;
@@ -221,10 +287,12 @@ processFiles(struct fileIndex *index, void (*printFunctionPointer)
                 printFunctionPointer);
 
             signature_unload(&scontexts[1]);
-            fflush(resultStream);
+            if (fflush(resultStream) != 0 || ferror(resultStream))
+                stopOnWriteError("the results", NULL);
             /* After the result is flushed, so a pair is only ever marked done
                once its output is on its way out. */
-            ledgerRecord(&ledger, file1, file2);
+            if (!ledgerRecord(&ledger, file1, file2))
+                stopOnWriteError("the ledger", args.ledgerFile);
 
             long done;
             #pragma omp atomic capture
@@ -243,47 +311,8 @@ processFiles(struct fileIndex *index, void (*printFunctionPointer)
         signature_unload(&scontextsBase[0]);
     }
 
-    ledgerClose(&ledger);
-}
-
-// This function processes the signatures by using index as an iterator
-void
-processFilePair(
-    struct fileIndex *index,
-    void (*printFunctionPointer)
-    (MatchingInfo *info, StreamContext* sc, char *file1, char *file2, \
-     int isFirst, int isLast, int isMoreThanOne)) {
-
-    StreamContext scontexts[NUM_OF_INPUTS] = { 0 };
-    MatchingInfo result = {0};
-    char *filePath1 = getIteratorIndexFilePath(index, 'a');
-    char *filePath2 = getIteratorIndexFilePath(index, 'b');
-
-    SignatureContext sigContext = {
-        .class = NULL,
-        .mode = args.mode,
-        .nb_inputs = NUM_OF_INPUTS,
-        .filename = "",
-        .thworddist = args.thD,
-        .thcomposdist = args.thDc,
-        .thl1 = args.thXh,
-        .thdi = args.thDi,
-        .thit = args.thIt,
-        .streamcontexts = scontexts
-    };
-
-
-    binary_import(&scontexts[0], filePath1);
-    binary_import(&scontexts[1], filePath2);
-
-    slog_debug(6, "Processing %s\t%s", filePath1, filePath2);
-
-    result = processSignaturePair(&scontexts[0], &scontexts[1], sigContext);
-    printResult(index, &result, &sigContext, args.minScore,
-        printFunctionPointer);
-
-    signature_unload(&scontexts[1]);
-    signature_unload(&scontexts[0]);
+    if (!ledgerClose(&ledger))
+        stopOnWriteError("the ledger", args.ledgerFile);
 }
 
 MatchingInfo

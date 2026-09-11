@@ -7,6 +7,9 @@ INCLUDES = -I src/includes -I /usr/include/x86_64-linux-gnu
 CFLAGS = -Wall -Wextra -std=c11 -fopenmp
 CRELEASEFLAGS = -O2 -march=native -floop-unroll-and-jam -fno-trapping-math
 CDEBUGFLAGS = -g3 -fsanitize=address -fno-trapping-math
+# Writes a .d file beside each object naming the headers it was compiled from,
+# so that editing a header rebuilds whatever includes it.
+DEPFLAGS = -MMD -MP
 
 # `make static` produces a binary that runs anywhere, with libslog, glibc and
 # libgomp all linked in. -march=native is dropped on purpose: it targets the
@@ -20,78 +23,120 @@ BUILD_DIR = build
 BIN_DIR = bin
 SRC_DIR = src
 
-# Should be equivalent to your list of C files, if you don't build selectively
-SRCS=$(shell find src/ -type f -name '*.c')
-HEADERS=$(shell find src/includes -type f -name '*.h')
-OBJS=$(addprefix ${BUILD_DIR}/,$(SRCS:src/%.c=%.o))
+# Every set of compiler flags is a variant with its own object directory under
+# build/, so a `make release` can never hand its -march=native objects to a
+# later `make static`, and a debug object never ends up in a release link. The
+# variant also names the binary, which each target used to pass in by hand.
+ifdef DEBUG
+ifdef OPTIDEBUG
+VARIANT = optiDebug
+EXE_NAME = mpeg7DupesOptiDebug.elf
+else ifdef NVDEBUG
+VARIANT = nonVerboseDebug
+EXE_NAME = mpeg7DupesNVDebug.elf
+else
+VARIANT = debug
+EXE_NAME = mpeg7DupesDebug.elf
+endif
+else ifdef SYMBOLS
+VARIANT = releaseWithSymbols
+EXE_NAME = mpeg7DupesSymbols.elf
+else ifdef STATIC
+VARIANT = static
+EXE_NAME = mpeg7Dupes.elf
+else
+VARIANT = release
+EXE_NAME = mpeg7Dupes.elf
+endif
 
-EXE_PATH ?= "${BIN_DIR}/mpeg7Dupes.elf"
+OBJ_DIR = $(BUILD_DIR)/$(VARIANT)
+EXE_PATH ?= $(BIN_DIR)/$(EXE_NAME)
+
+# Should be equivalent to your list of C files, if you don't build selectively
+SRCS=$(shell find $(SRC_DIR) -type f -name '*.c')
+OBJS=$(addprefix $(OBJ_DIR)/,$(SRCS:$(SRC_DIR)/%.c=%.o))
+DEPS=$(OBJS:.o=.d)
 
 all: release
 
+$(OBJ_DIR) $(BIN_DIR):
+	@mkdir -p $@
+
 .PHONY: buildDirs
-buildDirs:
-	@mkdir -p ${BIN_DIR}
-	@mkdir -p $(BUILD_DIR)
+buildDirs: | $(OBJ_DIR) $(BIN_DIR)
 
 .PHONY: release
 release:
 	@echo Building release
-	@$(MAKE) $(MAKEFILE) \
-		EXE_PATH="${BIN_DIR}/mpeg7Dupes.elf" link
+	@$(MAKE) link
 
 .PHONY: static
 static:
 	@echo Building static
-	@$(MAKE) $(MAKEFILE) STATIC="1" \
-		EXE_PATH="${BIN_DIR}/mpeg7Dupes.elf" link
+	@$(MAKE) STATIC="1" link
 
 .PHONY: releaseWithSymbols
 releaseWithSymbols:
 	@echo Building release
-	@$(MAKE) $(MAKEFILE) SYMBOLS="1"\
-		EXE_PATH="${BIN_DIR}/mpeg7DupesSymbols.elf" link
+	@$(MAKE) SYMBOLS="1" link
 
 .PHONY: debug
 debug:
 	@echo Building debug
-	@$(MAKE) $(MAKEFILE) DEBUG="1"\
-		EXE_PATH="${BIN_DIR}/mpeg7DupesDebug.elf" link
+	@$(MAKE) DEBUG="1" link
 
 .PHONY: optiDebug
 optiDebug:
 	@echo Building optimized debug
-	@$(MAKE) $(MAKEFILE) DEBUG="1" OPTIDEBUG="1" \
-		EXE_PATH="${BIN_DIR}/mpeg7DupesOptiDebug.elf" link
+	@$(MAKE) DEBUG="1" OPTIDEBUG="1" link
 
 .PHONY: nonVerboseDebug
 nonVerboseDebug:
 	@echo Building non verbose debug
-	@$(MAKE) $(MAKEFILE) DEBUG="1" NVDEBUG="1" \
-		EXE_PATH="${BIN_DIR}/mpeg7DupesNVDebug.elf" link
+	@$(MAKE) DEBUG="1" NVDEBUG="1" link
 
 .PHONY: compile
-compile: buildDirs ${HEADERS} ${OBJS}
+compile: ${OBJS}
 
-# Compares the checked-in fixtures and checks the result against a recorded
-# copy, then checks that -s makes a run resumable. Needs a built binary.
+# Builds the binary the shell suites run, then runs everything: the C unit
+# tests, the fixture comparison, the ledger check and the Python tool suites.
+# The variant is whatever the variables select, so `make test` builds and tests
+# the release binary and `make test STATIC=1` the static one; CI uses the
+# latter to test the binary it is about to publish rather than a release build
+# that would overwrite it. Under -j the build and the unit tests run side by
+# side and the suites wait for both.
+#
+# tools.sh needs no binary. It skips itself when there is no interpreter,
+# unless REQUIRE_PYTHON=1, which CI sets so that a runner without Python fails
+# instead of quietly testing less.
 .PHONY: test
-test: unit
+test: link unit
 	@echo
-	@sh tests/run.sh
+	@MPEG7DUPES=$(abspath $(EXE_PATH)) sh tests/run.sh
 	@echo
-	@sh tests/ledger.sh
+	@MPEG7DUPES=$(abspath $(EXE_PATH)) sh tests/ledger.sh
+	@echo
+	@MPEG7DUPES=$(abspath $(EXE_PATH)) sh tests/cli.sh
+	@echo
+	@sh tests/tools.sh
+
+# The one test that runs the real ffmpeg: three synthetic clips through
+# tools/find_reuse.py, twice, the second time without reading any video. Not
+# part of `test`, which is documented to need no ffmpeg; CI runs both.
+# REQUIRE_FFMPEG=1 turns the skip on a machine without ffmpeg into a failure.
+.PHONY: smoke
+smoke: link
+	@MPEG7DUPES=$(abspath $(EXE_PATH)) sh tests/smoke.sh
 
 UNIT_SRCS = $(shell find tests/unit -type f -name '*.c')
 # main.c has its own main(), and test_lookup.c includes signature_lookup.c
 # because the functions it covers have internal linkage, so neither belongs in
-# the link. Sources rather than objects on purpose: sharing ${BUILD_DIR} would
-# let a `make unit` leave -march=native objects behind for a later `make
-# static` to reuse, which is exactly what that target avoids.
+# the link. Sources rather than objects on purpose: the test binary has its own
+# flags and include path, so no variant's objects are the right ones.
 UNIT_LIB_SRCS = $(filter-out ${SRC_DIR}/main.c ${SRC_DIR}/signature_lookup.c,${SRCS})
 
 .PHONY: unit
-unit: buildDirs
+unit: | $(BIN_DIR)
 	@echo Building unit tests
 	@$(CC) ${CFLAGS} -O2 -I tests/unit -I ${SRC_DIR} ${INCLUDES} \
 		-o ${BIN_DIR}/unitTests ${UNIT_SRCS} ${UNIT_LIB_SRCS} ${LIBS}
@@ -103,37 +148,49 @@ clean:
 	@$(RM) -r $(BUILD_DIR) $(BIN_DIR)
 	@echo "Cleaning finished"
 
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(OBJ_DIR)
 	@# DO NOT change the options order
-	@echo Compiling
+	@echo Compiling $<
 ifdef DEBUG
 ifdef OPTIDEBUG
-	$(CC) -c -D DEBUG ${CFLAGS} ${CDEBUGFLAGS} -Og $< -o $@ ${INCLUDES}
+	$(CC) -c ${DEPFLAGS} -D DEBUG ${CFLAGS} ${CDEBUGFLAGS} -Og $< -o $@ ${INCLUDES}
 else ifdef NVDEBUG
-	$(CC) -c -g3 ${CFLAGS} ${CDEBUGFLAGS} $< -o $@ ${INCLUDES}
+	$(CC) -c ${DEPFLAGS} -g3 ${CFLAGS} ${CDEBUGFLAGS} $< -o $@ ${INCLUDES}
 else
-	$(CC) -c -g3 -D DEBUG ${CFLAGS} ${CDEBUGFLAGS}  $< -o $@ ${INCLUDES}
+	$(CC) -c ${DEPFLAGS} -g3 -D DEBUG ${CFLAGS} ${CDEBUGFLAGS}  $< -o $@ ${INCLUDES}
 endif
 else
 ifdef SYMBOLS
-	$(CC) -g3 -c  ${CFLAGS} ${CRELEASEFLAGS} $< -O2 -o $@ ${INCLUDES}
+	$(CC) -g3 -c ${DEPFLAGS} ${CFLAGS} ${CRELEASEFLAGS} $< -O2 -o $@ ${INCLUDES}
 else
-	$(CC) -c  ${CFLAGS} ${CRELEASEFLAGS} $< -O2 -o $@ ${INCLUDES}
+	$(CC) -c ${DEPFLAGS} ${CFLAGS} ${CRELEASEFLAGS} $< -O2 -o $@ ${INCLUDES}
 endif
 endif
 
-link: compile
+# The binary is linked inside the variant's directory and copied to EXE_PATH,
+# because release and static share bin/mpeg7Dupes.elf: linked there directly,
+# a `make release` after a `make static` would find a binary newer than its
+# objects and leave the static one in place.
+VARIANT_EXE = $(OBJ_DIR)/$(EXE_NAME)
+
+$(VARIANT_EXE): ${OBJS}
 	@echo Linking
 ifdef DEBUG
-	$(CC) -g3 -o ${EXE_PATH} ${OBJS} ${DEBUG_LIBS} ${CFLAGS} ${LIBS}
+	$(CC) -g3 -o $@ ${OBJS} ${DEBUG_LIBS} ${CFLAGS} ${LIBS}
 else
 ifdef SYMBOLS
-	$(CC) -g3 -o ${EXE_PATH} ${OBJS} ${CFLAGS} ${LIBS}
+	$(CC) -g3 -o $@ ${OBJS} ${CFLAGS} ${LIBS}
 else
-	$(CC) -o ${EXE_PATH} ${OBJS} ${CFLAGS} ${LINK_EXTRA} ${LIBS}
+	$(CC) -o $@ ${OBJS} ${CFLAGS} ${LINK_EXTRA} ${LIBS}
 ifdef STATIC
-	@strip ${EXE_PATH}
-	@echo "Static binary: `ls -lh ${EXE_PATH} | awk '{print $$5}'`, no runtime dependencies"
+	@strip $@
+	@echo "Static binary: `ls -lh $@ | awk '{print $$5}'`, no runtime dependencies"
 endif
 endif
 endif
+
+.PHONY: link
+link: $(VARIANT_EXE) | $(BIN_DIR)
+	@cp -f $(VARIANT_EXE) $(EXE_PATH)
+
+-include $(DEPS)

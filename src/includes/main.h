@@ -10,7 +10,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <signal.h>
 #include <unistd.h>
 #include <time.h>
 #include <omp.h>
@@ -34,11 +33,6 @@
 
 void
 processFiles(struct fileIndex *index, void (*printFunctionPointer)
-    (MatchingInfo *info, StreamContext* sc, char *file1, char *file2, \
-     int isFirst, int isLast, int isMoreThanOne));
-
-void
-processFilePair(struct fileIndex *index, void (*printFunctionPointer)
     (MatchingInfo *info, StreamContext* sc, char *file1, char *file2, \
      int isFirst, int isLast, int isMoreThanOne));
 

@@ -20,8 +20,6 @@
 #include <stdio.h>
 #include <math.h>
 #include <string.h>
-#include <sys/types.h>
-#include <sys/stat.h>
 
 // ffmpeg downloaded headers
 #include "macros.h"
@@ -70,8 +68,6 @@ nextFileIteration(struct fileIndex *fileIndex);
 int
 nextFileIterationByIndex(struct fileIndex *fileIndex, char index);
 
-char*
-padStr(char *str, char *buffer, int maxLen, char padChar);
 
 int
 fineSignatureCmp(const void *p1, const void *p2);
@@ -82,7 +78,5 @@ getFileSize(const char *filename);
 unsigned int
 getPathLastSlashPosition(const char *path);
 
-int
-xml_dump(StreamContext *sc);
 
 #endif

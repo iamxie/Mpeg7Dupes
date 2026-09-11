@@ -17,9 +17,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # slog is needed only to build. libslog.a is static, so it ends up inside the
-# binary and the runtime stage never sees it. Pin SLOG_REF to reproduce an
-# exact build; the default tracks upstream.
-ARG SLOG_REF=master
+# binary and the runtime stage never sees it. SLOG_REF is pinned, and to the
+# same ref as both workflows: slog's tags and version macros disagree, v1.8.49
+# carries a header that says 1.9.49, and it is what master was when this was
+# pinned. A floating default would let two images built from one source
+# differ without saying so. Override it on purpose:
+#
+#   docker build --build-arg SLOG_REF=<tag or commit> -t mpeg7dupes .
+ARG SLOG_REF=v1.8.49
 RUN git clone --quiet https://github.com/kala13x/slog /tmp/slog \
     && cd /tmp/slog \
     && git checkout --quiet "${SLOG_REF}" \

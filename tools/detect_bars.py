@@ -58,6 +58,30 @@ inside a lettered bar twitch, so a single row proves nothing. The bar ends where
 the profile rises and stays up, asked as "the next RUN rows are all above the
 threshold".
 
+Still is not enough
+-------------------
+Identical in every frame has two halves, and version 1 of this detector asked
+only one of them: did the row move within a window. It never asked whether the
+row looked the same in one window as in another. On footage that is still
+apart from a short moving stretch, that is not enough. Five windows land on the
+still shot, where nothing moves; the sixth lands on the moving stretch, whose
+middle moves, which lifts the guard for still footage below, and whose top and
+bottom may happen to hold still for that half second. Every edge row is then
+still in every window and reads as bar, although the still shot's sky and the
+spliced-in clip's ceiling are different pictures. The independent validation
+set had three such files, none of them with bars, and version 1 cropped 136,
+274 and 482 of their 1080 rows off.
+
+So a row is also picture when its average over a window, in any column,
+differs from its average over another window by more than DRIFT. This is not
+the pooling rejected above: it can only make a row picture, never bar, so a row
+that is merely dark in every window is judged by movement exactly as before.
+
+What that gives up: a bar whose lettering changes during the video, a rotating
+slogan say, now reads as picture from the lettering on, when the changing
+lettering is RUN rows tall or more. The crop then stops short of it instead of
+taking picture with it.
+
 Measured
 --------
 96 videos, 6 sources cut two ways and edited eight, 36 of them with bars of a
@@ -71,11 +95,42 @@ WIDTH 16 holds 96 of 96 with an error of at most 2 rows for every threshold from
 2.5 to 6.5, so the value below sits in the middle of a plateau rather than on a
 peak. WIDTH 8 works too over a narrower range; WIDTH 1 falls to 95 of 96.
 
+Version 2 answers the same on those 96. On the 92 files of the independent
+validation set it takes the three false crops to no bars and moves nothing else
+by a row: 14 of the 18 barred files found within a row, the other four too
+still to tell, as with version 1. Every DRIFT from 12 to 70 gives exactly that
+on all 188 videos; below 10 the lettering inside a bar starts to split it, and
+from 75 the spliced-in clips' still edges start to read as bar again. DRIFT was
+chosen after looking at the validation set, which is tuning material for the
+detector from version 2 on.
+
+The second validation set, 145 files from ten other sources, was not looked at
+when DRIFT was chosen. On its 116 edited copies version 2 cropped none without
+bars and missed none. It found the bars within a row on 21, and 2 rows short
+on 5, where the encoder smeared the picture into the bar; it left the 65
+without bars alone; it declined 10 as too still; it cropped a still band with
+the bars on 6, as the next section says; the other 9 have no single right
+answer, their bars being there for part of the length or blurred into the
+picture. A source's own 128-row
+letterbox was found exactly. One source, a clip of moving clouds over a still
+city skyline, lost the 103 rows of skyline along its bottom edge.
+
 What it cannot do
 -----------------
 A video that barely moves has no signal to work with. If the middle of the frame
 is as still as a bar would be, this says so rather than guessing. Slideshows, a
 locked-off camera on an empty scene and long fades all land there.
+
+When the moving stretch of a mostly still video holds still at its edges and
+shows the same thing there as the still shot does, black above and below both
+say, nothing in the samples tells those rows from a bar.
+
+Anything across the whole width that never changes is a bar by this
+definition: a news ticker whose text stays the same, a caption strip, still
+scenery along the bottom of moving footage. It is cropped with the bars. That
+costs a comparison nothing when every copy is cropped the same way, which is
+what happened to a 119-row ticker on the second validation set; it takes out
+whatever the band shows.
 
 Bars whose content moves are not bars by this definition and will not be found:
 an animated banner, a live scoreboard, a clock. Those are also not the case that
@@ -104,6 +159,11 @@ WIDTH = 16
 # Movement, in levels of an 8 bit grey value, above which a row counts as
 # picture. Middle of the 2.5 to 6.5 plateau.
 THRESHOLD = 5.0
+# How far a row's average over one window may differ from its average over
+# another, in any column, in levels of an 8 bit grey value, before the row
+# counts as picture even though it never moved. See "Still is not enough".
+# Middle, on a log scale, of the 12 to 70 plateau measured below.
+DRIFT = 30.0
 # Consecutive rows that must stay above the threshold for the picture to have
 # started. Longer than the runs compression produces inside a lettered bar,
 # far shorter than any real bar.
@@ -113,12 +173,38 @@ RUN = 8
 MAX_BAR_FRACTION = 0.35
 # Frames needed at one sampling point before that window counts.
 MIN_WINDOW = 4
+# Places along the video to sample, and frames to take at each. Constants
+# rather than call-site arguments because they change where a boundary lands,
+# so two callers passing different values would crop the same video two ways
+# while DETECTOR_VERSION claimed they agreed.
+POINTS = 6
+PER_POINT = 12
+# Bars thinner than this fraction of the height are reported as none: a row or
+# two is rounding, not a bar.
+MIN_FRACTION = 0.02
+
+# Bump when a change here would crop a video differently: the constants above,
+# the sampling, the edge rule, anything that moves a boundary by a row.
+#
+# A signature taken from a cropped video is only comparable with one cropped
+# the same way, so a caller that keeps signatures has to be able to tell which
+# detector made them. Callers put this in their cache key; a bump therefore
+# invalidates exactly the signatures that are now wrong and leaves the
+# uncropped ones alone. Without it a retuned detector goes on silently serving
+# signatures taken from a different picture, which is the same class of fault
+# as comparing results from two builds of the binary.
+#
+# A change to a docstring or a message does not need a bump. Bumping anyway
+# costs a re-fingerprint; being wrong costs a wrong answer with no symptom.
+#
+# 2: rows whose content differs between windows are picture (DRIFT).
+DETECTOR_VERSION = "2"
 
 
-def probe(path):
+def probe(path, ffprobe="ffprobe"):
     """Height and duration, or None when ffprobe cannot read the file."""
     out = subprocess.run(
-        ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+        [ffprobe, "-v", "error", "-select_streams", "v:0", "-show_entries",
          "stream=height:format=duration", "-of", "json", str(path)],
         capture_output=True, text=True)
     if out.returncode != 0:
@@ -130,15 +216,17 @@ def probe(path):
         return None
 
 
-def movement(path, height, duration, points, per_point):
-    """Per row, the most any of its columns moved within any one window."""
-    windows = []
+def movement(path, height, duration, points, per_point, ffmpeg="ffmpeg"):
+    """Two profiles, one number per row: the most any of its columns moved
+    within any one window, and the most any column's average differed between
+    two windows. None when no window had enough frames."""
+    within, means = [], []
     for i in range(points):
         # Spread over the middle 80%, avoiding titles at the very start and
         # credits at the very end, both of which are often still.
         at = duration * (0.1 + 0.8 * i / max(1, points - 1))
         raw = subprocess.run(
-            ["ffmpeg", "-v", "error", "-ss", f"{at:.2f}", "-i", str(path),
+            [ffmpeg, "-v", "error", "-ss", f"{at:.2f}", "-i", str(path),
              "-vf", f"scale={WIDTH}:ih:flags=area,format=gray",
              "-frames:v", str(per_point), "-f", "rawvideo", "-"],
             capture_output=True).stdout
@@ -147,37 +235,53 @@ def movement(path, height, duration, points, per_point):
                   for j in range(len(raw) // stride)]
         if len(frames) < MIN_WINDOW:
             continue
-        windows.append([
+        within.append([
             max(statistics.pstdev([f[r * WIDTH + c] for f in frames])
                 for c in range(WIDTH))
             for r in range(height)
         ])
-    if not windows:
+        means.append([
+            [statistics.fmean([f[r * WIDTH + c] for f in frames])
+             for c in range(WIDTH)]
+            for r in range(height)
+        ])
+    if not within:
         return None
-    return [max(w[r] for w in windows) for r in range(height)]
+    noise = [max(w[r] for w in within) for r in range(height)]
+    drift = [max(max(m[r][c] for m in means) - min(m[r][c] for m in means)
+                 for c in range(WIDTH))
+             for r in range(height)]
+    return noise, drift
 
 
-def edge(noise, threshold, reverse):
-    """How many rows of bar there are at one edge."""
-    rows = list(range(len(noise) - 1, -1, -1) if reverse
-                else range(len(noise)))
-    for i in range(int(len(noise) * MAX_BAR_FRACTION)):
+def edge(picture, reverse):
+    """How many rows of bar there are at one edge: the rows before the first
+    run of RUN rows that are all picture."""
+    rows = list(range(len(picture) - 1, -1, -1) if reverse
+                else range(len(picture)))
+    for i in range(int(len(picture) * MAX_BAR_FRACTION)):
         window = rows[i:i + RUN]
-        if len(window) == RUN and all(noise[r] > threshold for r in window):
+        if len(window) == RUN and all(picture[r] for r in window):
             return i
     return 0
 
 
-def analyse(path, points, per_point, threshold, min_fraction):
-    """One video. 'status' says whether the rest of the result means anything."""
-    info = probe(path)
+def analyse(path, points, per_point, threshold, min_fraction,
+            ffmpeg="ffmpeg", ffprobe="ffprobe"):
+    """One video. 'status' says whether the rest of the result means anything.
+
+    ffmpeg and ffprobe are the programs to run, so a caller that was told
+    which ones to use can pass that on; the defaults are whatever PATH has.
+    """
+    info = probe(path, ffprobe)
     if not info:
         return {"path": str(path), "status": "unreadable"}
     height, duration = info
 
-    noise = movement(path, height, duration, points, per_point)
-    if noise is None:
+    profiles = movement(path, height, duration, points, per_point, ffmpeg)
+    if profiles is None:
         return {"path": str(path), "status": "too short", "height": height}
+    noise, drift = profiles
 
     # The middle of the frame is picture whatever else is going on. If it is not
     # moving either, nothing here can tell a bar from a quiet shot. Median
@@ -188,8 +292,11 @@ def analyse(path, points, per_point, threshold, min_fraction):
         return {"path": str(path), "status": "too static", "height": height,
                 "middle": middle}
 
-    top = edge(noise, threshold, reverse=False)
-    bottom = edge(noise, threshold, reverse=True)
+    # Picture moves within a window or looks different from one window to
+    # the next; a bar does neither.
+    picture = [n > threshold or d > DRIFT for n, d in zip(noise, drift)]
+    top = edge(picture, reverse=False)
+    bottom = edge(picture, reverse=True)
     fraction = (top + bottom) / height
     if fraction < min_fraction:
         top = bottom = 0
@@ -207,17 +314,19 @@ def main():
     p.add_argument("videos", nargs="+", type=Path)
     p.add_argument("--csv", action="store_true",
                    help="one row per video instead of a report")
-    p.add_argument("--points", type=int, default=6, metavar="N",
-                   help="places along the video to sample (default 6)")
-    p.add_argument("--frames", type=int, default=12, metavar="N",
-                   help="frames to take at each place (default 12)")
+    p.add_argument("--points", type=int, default=POINTS, metavar="N",
+                   help=f"places along the video to sample (default {POINTS})")
+    p.add_argument("--frames", type=int, default=PER_POINT, metavar="N",
+                   help=f"frames to take at each place (default {PER_POINT})")
     p.add_argument("--threshold", type=float, default=THRESHOLD, metavar="F",
                    help=f"movement above which a row is picture "
                         f"(default {THRESHOLD})")
-    p.add_argument("--min-fraction", type=float, default=0.02, metavar="F",
-                   help="bars thinner than this fraction of the height are "
-                        "reported as none, a row or two being rounding rather "
-                        "than a bar (default 0.02)")
+    p.add_argument("--min-fraction", type=float, default=MIN_FRACTION, metavar="F",
+                   help=f"bars thinner than this fraction of the height are "
+                        f"reported as none, a row or two being rounding rather "
+                        f"than a bar (default {MIN_FRACTION})")
+    p.add_argument("--ffmpeg", default="ffmpeg", metavar="PATH")
+    p.add_argument("--ffprobe", default="ffprobe", metavar="PATH")
     args = p.parse_args()
 
     if args.csv:
@@ -226,7 +335,8 @@ def main():
     worst = 0
     for path in args.videos:
         r = analyse(path, args.points, args.frames,
-                    args.threshold, args.min_fraction)
+                    args.threshold, args.min_fraction,
+                    ffmpeg=args.ffmpeg, ffprobe=args.ffprobe)
         name = Path(r["path"]).name
         crop = ""
         if r["status"] == "ok" and r["bar_fraction"]:

@@ -162,7 +162,10 @@ typedef struct SignatureContext {
     int thcomposdist;
     int thl1;
     int thdi;
-    int thit;
+    /* A ratio in [0, 1]. It was an int, which turned every value below 1
+       into 0 on the way in from the command line, so -b never rejected a
+       candidate. */
+    double thit;
     /* end input parameters */
 
     uint8_t l1distlut[243*242/2]; /* 243 + 242 + 241 ... */

@@ -1,6 +1,24 @@
 #include "signature_load.h"
 #include "printers.h"
 
+/* Sizes of the pieces of a binary signature in bits, as ffmpeg's signature
+   filter writes them. The header runs up to and including NumOfSegments, the
+   compression flag sits between the coarse and the fine signatures. Every
+   signature in the test corpus is exactly this long. */
+#define SIG_HEADER_BITS 274
+#define SIG_COARSE_BITS 1344
+#define SIG_FLAG_BITS 1
+#define SIG_FINE_BITS 689
+
+/* Stops the run with a message naming the file. A signature that cannot be
+   read is not a pair that did not match, and reading past the end of a short
+   file used to be a segfault with no name in it. */
+static void
+rejectSignature(const char *filename, const char *why)
+{
+    slog_fatal(1, "Cannot use signature %s: %s", filename, why);
+    exit(1);
+}
 
 void
 binary_import(StreamContext *sc, const char* filename)
@@ -10,6 +28,7 @@ binary_import(StreamContext *sc, const char* filename)
         numOfSegments = 0;
     uint8_t *buffer = NULL;
     GetBitContext bitContext = { 0 };
+    char why[200];
 
     slog_debug(6, "Loading signature from: %s", filename);
 
@@ -20,6 +39,14 @@ binary_import(StreamContext *sc, const char* filename)
 
     // We get to total file length
     fileLength = getFileSize(filename);
+    if (fileLength == 0) {
+        fclose(f);
+        rejectSignature(filename, "the file is empty");
+    }
+    if (fileLength < (SIG_HEADER_BITS + 7) / 8) {
+        fclose(f);
+        rejectSignature(filename, "the file is shorter than a signature header");
+    }
 
     // Cast to float is necessary to avoid int division
     paddedLength = ceil(fileLength / (float) AV_INPUT_BUFFER_PADDING_SIZE)*\
@@ -85,6 +112,26 @@ binary_import(StreamContext *sc, const char* filename)
     // Reading from binary signature return a wrong number of segments
     // numOfSegments = (sc->lastindex + 44)/45;
     //skip_bits(&bitContext, 32);
+
+    /* Everything below reads what the counts promise, so the counts have to
+       be backed by bytes before a single one is read or allocated. */
+    if (numOfSegments == 0 || sc->lastindex == 0)
+        rejectSignature(filename, "it holds no frames");
+    if (sc->time_base.den == 0)
+        rejectSignature(filename, "its time base is zero");
+    {
+        uint64_t needBits = SIG_HEADER_BITS
+            + (uint64_t) numOfSegments * SIG_COARSE_BITS + SIG_FLAG_BITS
+            + (uint64_t) sc->lastindex * SIG_FINE_BITS;
+        uint64_t needBytes = (needBits + 7) / 8;
+        if (needBytes > fileLength) {
+            snprintf(why, sizeof why, "it claims %u coarse and %u fine "
+                "signatures, which take %llu bytes, but the file has %u",
+                numOfSegments, sc->lastindex,
+                (unsigned long long) needBytes, fileLength);
+            rejectSignature(filename, why);
+        }
+    }
 
 	sc->coarsesiglist = (CoarseSignature*) calloc(numOfSegments,\
             sizeof(CoarseSignature));
@@ -221,6 +268,12 @@ binary_import(StreamContext *sc, const char* filename)
                 }
             }
 
+        }
+        if (!bCs->cSign->first || !bCs->cSign->last) {
+            snprintf(why, sizeof why, "coarse signature %u covers no frame "
+                "(pts %llu to %llu)", i, (unsigned long long) bCs->firstPts,
+                (unsigned long long) bCs->lastPts);
+            rejectSignature(filename, why);
         }
         bCs->cSign->first->index = bCs->firstIndex;
         bCs->cSign->last->index = bCs->lastIndex;

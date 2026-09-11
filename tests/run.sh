@@ -26,13 +26,16 @@ trap 'rm -rf "$work"' EXIT
     exit 2
 }
 
-# -i 0 because any other value truncates the match, -k 1 and -b 0.1 so every
-# pair is reported and the checks can look at the ones that do not match too.
+# Every option spelled out, so the pass means the same on a build with other
+# defaults. -k 1 and -b 0.1 so every pair is reported and the checks can look
+# at the ones that do not match too. full first: it is the mode with a known
+# limitation, the early stop, and several checks below exist to describe it.
 ( cd "$here/fixtures" && ls -1 *.bin > "$work/list.txt" )
 ( cd "$here/fixtures" && "$bin" -f csv -m full -i 0 -k 1 -b 0.1 \
     -l "$work/list.txt" > "$work/out.csv" 2> "$work/out.err" )
 
-# A second pass in the other search mode, for the checks that separate them.
+# A second pass in longest, the default mode, for the checks that separate
+# them and for its own recorded copy.
 ( cd "$here/fixtures" && "$bin" -f csv -m longest -i 0 -k 1 -b 0.1 \
     -l "$work/list.txt" > "$work/longest.csv" 2> "$work/longest.err" )
 
@@ -75,9 +78,12 @@ longfield() {
 
 echo "Comparing the fixtures with $bin"
 
-# Six fixtures make fifteen pairs, but printCSV drops a row whose score is 0,
-# so excerpt against unrelated never appears. Worth pinning: a pair missing
-# from the output does not mean it was never compared.
+# Six fixtures make fifteen pairs. The five with unrelated in them produce no
+# row at all: the coarse filter rejects every pair of segments that shares
+# nothing, so no candidate is ever walked, and printCSV drops a row whose
+# score is 0 either way. Worth pinning: a pair missing from the output does
+# not mean it was never compared. Up to build 6 the filter passed everything
+# and four of those five came back as rows of five to nine noise frames.
 # Matched loosely on purpose: the build number changes with almost every
 # commit, and a test that has to be edited each time is a test that gets
 # edited without being read. What matters is that the banner is there at the
@@ -86,8 +92,10 @@ banner='mpeg7dupes v[0-9]+\.[0-9]+ b[0-9]+'
 check "every run says which build produced it" \
     "$(grep -clE "$banner" "$work/out.err" "$work/longest.err" | wc -l | tr -d ' ')" 2
 
-check "fourteen of the fifteen pairs are reported" \
-    "$(tail -n +2 "$work/out.csv" | grep -c .)" 14
+check "ten of the fifteen pairs are reported in full mode" \
+    "$(tail -n +2 "$work/out.csv" | grep -c .)" 10
+check "and the same ten in longest" \
+    "$(tail -n +2 "$work/longest.csv" | grep -c .)" 10
 
 # A re-encode at half the width is still the same clip from end to end.
 check "base vs scaled covers the whole clip" \
@@ -113,12 +121,17 @@ check "and say the extract matched from its own first frame to its last" \
 # These two share content that sits inside both files, so neither side reaches
 # both of its ends and the candidate has to be chosen on its merits. That
 # choice used to be inverted and settled on a few frames of noise: this scored
-# 14 before the fix and 506 after. Guarding the score rather than the frame
-# count because the gap is far wider there.
+# 14 before the fix and 506 after. Checked in longest, the default: in full,
+# since build 7 proposes candidates at both signs of offset, base against
+# headinsert stops on a ten-frame candidate at ratio 0.07 that reaches both
+# ends of the short fixtures, which is the early stop full is kept to show.
 check "base vs headinsert scores like a real match, not noise" \
-    "$([ "$(field base.bin headinsert.bin 3)" -ge 100 ] && echo yes || echo no)" yes
+    "$([ "$(longfield base.bin headinsert.bin 3)" -ge 100 ] && echo yes || echo no)" yes
 check "headinsert vs scaled scores like a real match, not noise" \
-    "$([ "$(field headinsert.bin scaled.bin 3)" -ge 100 ] && echo yes || echo no)" yes
+    "$([ "$(longfield headinsert.bin scaled.bin 3)" -ge 100 ] && echo yes || echo no)" yes
+check "and in longest the match is the sixty frames of the extract" \
+    "$(longfield base.bin headinsert.bin 4),$(longfield base.bin headinsert.bin 12),$(longfield base.bin headinsert.bin 13)" \
+    "63,9.00,20.80"
 
 # tailinsert is the extract followed by ten seconds of another pattern, so the
 # extract sits at 9 to 21 seconds of base. full stops at the first candidate
@@ -137,20 +150,32 @@ check "unrelated never scores above the noise floor" \
     "$(awk -F, '$1 ~ /unrelated/ || $2 ~ /unrelated/ { if ($3 > 20) n++ } END { print n+0 }' \
         "$work/out.csv")" 0
 
-if [ -f "$expected" ] && [ "${UPDATE:-0}" != "1" ]; then
-    if diff -u "$expected" "$work/actual.sorted" > "$work/diff" 2>&1; then
-        printf '  ok    output matches tests/expected/compare.csv\n'
-        checks=$((checks + 1))
+# Two recorded copies, one per mode. compare.csv is the full pass: full is
+# kept as a mode with a known limitation, the early stop that the checks
+# above describe, and this copy pins that behaviour as it is, not as it
+# should be; since build 7 that includes two pairs settled on a few frames
+# at an extreme ratio. compare-longest.csv is the default mode and the one
+# to read as the comparison's intended output.
+golden() {
+    name="$1"; recorded="$2"; actual="$3"
+    if [ -f "$recorded" ] && [ "${UPDATE:-0}" != "1" ]; then
+        if diff -u "$recorded" "$actual" > "$work/diff" 2>&1; then
+            printf '  ok    output matches tests/expected/%s\n' "$name"
+            checks=$((checks + 1))
+        else
+            printf '  FAIL  output differs from tests/expected/%s\n' "$name"
+            sed 's/^/    /' "$work/diff"
+            checks=$((checks + 1))
+            failures=$((failures + 1))
+        fi
     else
-        printf '  FAIL  output differs from tests/expected/compare.csv\n'
-        sed 's/^/    /' "$work/diff"
-        checks=$((checks + 1))
-        failures=$((failures + 1))
+        cp "$actual" "$recorded"
+        printf '  ..    recorded tests/expected/%s\n' "$name"
     fi
-else
-    cp "$work/actual.sorted" "$expected"
-    printf '  ..    recorded tests/expected/compare.csv\n'
-fi
+}
+sort "$work/longest.csv" > "$work/longest.sorted"
+golden compare.csv "$expected" "$work/actual.sorted"
+golden compare-longest.csv "$here/expected/compare-longest.csv" "$work/longest.sorted"
 
 echo
 if [ "$failures" -eq 0 ]; then

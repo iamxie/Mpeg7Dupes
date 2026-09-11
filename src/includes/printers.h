@@ -4,19 +4,12 @@
 #include "signature.h"
 #include "utils.h"
 
-/* Stream the results (CSV / beautiful) go to. main() points this at the real
+/* Stream the results, CSV, go to. main() points this at the real
    stdout and redirects fd 1 to stderr, so slog output and results stay apart. */
 extern FILE *resultStream;
 
 void
-printBeautifulHeader();
-
-void
 printCSVHeader();
-
-void
-printBeautiful(MatchingInfo *info, StreamContext* sc, char *file1,\
-	char *file2, int isFirst, int isLast, int isMoreThanOne);
 
 void
 printCSV(MatchingInfo *info, StreamContext* sc, char *file1, char *file2,\

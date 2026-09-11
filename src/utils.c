@@ -27,6 +27,42 @@ mergeFileIterators(struct fileIndex *index1, struct fileIndex *index2) {
     return newFileIndex;
 }
 
+/* The next entry of a list file: the next line that is not blank, with its
+   line ending removed, CRLF included. Returns 1 with the entry in buf, which
+   holds MAX_PATH_LENGTH bytes, or 0 at the end of the file. A line too long
+   for buf stops the run naming the list and the line, because the old fgets
+   and strtok pair kept the first 319 bytes as one entry and the rest as the
+   next, and compared two files nobody had named. lineNumber counts every
+   line read so the message can point at the right one. */
+static int
+readListEntry(FILE *list, char *buf, const char *listName,
+    unsigned int *lineNumber) {
+    while (fgets(buf, MAX_PATH_LENGTH, list)) {
+        size_t len = strlen(buf);
+        size_t lead = 0;
+
+        ++*lineNumber;
+        if (len == MAX_PATH_LENGTH - 1 && buf[len - 1] != '\n') {
+            /* buf is full and the line has not ended. It may end right
+               here, which is fine; anything else is a longer path. */
+            int c = getc(list);
+            if (c != '\n' && c != EOF) {
+                slog_fatal(1, "%s line %u: path longer than %d bytes: %.40s...",
+                    listName, *lineNumber, MAX_PATH_LENGTH - 1, buf);
+                exit(1);
+            }
+        }
+        while (len && (buf[len - 1] == '\n' || buf[len - 1] == '\r'))
+            buf[--len] = '\0';
+        while (buf[lead] == ' ' || buf[lead] == '\t')
+            ++lead;
+        if (buf[lead] == '\0')
+            continue; /* blank */
+        return 1;
+    }
+    return 0;
+}
+
 int
 initFileIterator(struct fileIndex *fileIndex, char *fileListName) {
     Assert(fileIndex);
@@ -37,6 +73,7 @@ initFileIterator(struct fileIndex *fileIndex, char *fileListName) {
     fileIndex->maxIndexA = getNumberOfLinesFromFilename(fileListName);
     fileIndex->maxIndexB = fileIndex->maxIndexA;
     int maxFiles = FFMAX(fileIndex->maxIndexA, fileIndex->maxIndexB);
+    unsigned int line = 0;
 
 
     // Max path length, 320 chars should be enough for most cases
@@ -45,8 +82,10 @@ initFileIterator(struct fileIndex *fileIndex, char *fileListName) {
     char* pathsMatrix = (char*) calloc(maxFiles, MAX_PATH_LENGTH);
 
     for (int i = 0; i < maxFiles; ++i) {
-        fgets(&pathsMatrix[MAX_PATH_LENGTH*i], MAX_PATH_LENGTH, listFile);
-        strtok(&pathsMatrix[MAX_PATH_LENGTH*i], "\n");
+        /* Counted a moment ago by the same reader, so an entry is there. */
+        int got = readListEntry(listFile, &pathsMatrix[MAX_PATH_LENGTH*i],
+            fileListName, &line);
+        Assert(got);
     }
 
     fileIndex->pathsMatrix = pathsMatrix;
@@ -64,24 +103,30 @@ initFileIteratorFromCmdLine(struct fileIndex *fileIndex,
     fileIndex->maxIndexB = argc;
 
     fileIndex->pathsMatrix = (char*) calloc(argc, MAX_PATH_LENGTH);
-    for (int i = 0; i < argc; ++i)
-        strcpy(&fileIndex->pathsMatrix[i*MAX_PATH_LENGTH], argv[i]);
+    for (int i = 0; i < argc; ++i) {
+        /* The argument parser refused longer paths already; this keeps the
+           copy bounded whatever the caller did. */
+        LoggedAssert(strlen(argv[i]) < MAX_PATH_LENGTH,
+            "Path longer than %d bytes: %.40s...", MAX_PATH_LENGTH - 1, argv[i]);
+        snprintf(&fileIndex->pathsMatrix[i*MAX_PATH_LENGTH], MAX_PATH_LENGTH,
+            "%s", argv[i]);
+    }
     return 1;
 }
 
+/* Entries, not lines: blank lines are skipped and a last line without a
+   newline still counts. Counting newlines used to drop that last entry, and
+   with two entries in the list that meant "at least two entries required". */
 unsigned int
 getNumberOfLinesFromFilename(char *filename) {
     Assert(filename);
     FILE *listFile = fopen(filename, "r");
-    unsigned int numbOfEntries = 0;
-    char chr = 0;
+    unsigned int numbOfEntries = 0, line = 0;
+    char buf[MAX_PATH_LENGTH];
     Assert(listFile);
 
-    while (!feof(listFile)) {
-        chr = getc(listFile);
-        if (chr == '\n')
-            ++numbOfEntries;
-    }
+    while (readListEntry(listFile, buf, filename, &line))
+        ++numbOfEntries;
     fclose(listFile);
     return numbOfEntries;
 }
@@ -147,26 +192,6 @@ getIteratorIndexFilePath(struct fileIndex *fileIndex, char indexSelector){
     return &fileIndex->pathsMatrix[effectiveIndex];
 }
 
-char*
-padStr(char *str, char *buffer, int maxLen, char padChar) {
-    int len, padSpace;
-    Assert(str);
-    Assert(buffer);
-
-    len = strlen(str);
-    Assert(len <= maxLen);
-
-    padSpace = (maxLen - len)/2;
-    Assert(padSpace >= 0);
-    for (int i = 0;  i < padSpace;++i)
-        buffer[i] = padChar;
-
-    strcat(&buffer[padSpace], str);
-    for (int i = len+padSpace; i < maxLen && i < maxLen;++i)
-        buffer[i] = padChar;
-    buffer[maxLen-1] = '\0';
-    return buffer;
-}
 
 int
 fineSignatureCmp(const void* p1, const void* p2) {
@@ -209,103 +234,4 @@ getPathLastSlashPosition(const char *path) {
         }
     }
     return lastSlashPosition;
-}
-
-
-int
-xml_dump(StreamContext *sc)
-{
-    FILE* f;
-    unsigned int pot3[5] = { 3*3*3*3, 3*3*3, 3*3, 3, 1 };
-
-    // stdout
-    f = stdout;
-
-    /* header */
-    fprintf(f, "<?xml version='1.0' encoding='ASCII' ?>\n");
-    fprintf(f, "<Mpeg7 xmlns=\"urn:mpeg:mpeg7:schema:2001\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:schemaLocation=\"urn:mpeg:mpeg7:schema:2001 schema/Mpeg7-2001.xsd\">\n");
-    fprintf(f, "  <DescriptionUnit xsi:type=\"DescriptorCollectionType\">\n");
-    fprintf(f, "    <Descriptor xsi:type=\"VideoSignatureType\">\n");
-    fprintf(f, "      <VideoSignatureRegion>\n");
-    fprintf(f, "        <VideoSignatureSpatialRegion>\n");
-    fprintf(f, "          <Pixel>0 0 </Pixel>\n");
-    fprintf(f, "          <Pixel>%d %d </Pixel>\n", sc->w - 1, sc->h - 1);
-    fprintf(f, "        </VideoSignatureSpatialRegion>\n");
-    fprintf(f, "        <StartFrameOfSpatialRegion>0</StartFrameOfSpatialRegion>\n");
-    /* hoping num is 1, other values are vague */
-    fprintf(f, "        <MediaTimeUnit>%d</MediaTimeUnit>\n", sc->time_base.den / sc->time_base.num);
-    fprintf(f, "        <MediaTimeOfSpatialRegion>\n");
-    fprintf(f, "          <StartMediaTimeOfSpatialRegion>0</StartMediaTimeOfSpatialRegion>\n");
-    fprintf(f, "          <EndMediaTimeOfSpatialRegion>%" PRIu64 "</EndMediaTimeOfSpatialRegion>\n", sc->coarseend->last->pts);
-    fprintf(f, "        </MediaTimeOfSpatialRegion>\n");
-
-    /* coarsesignatures */
-    for (CoarseSignature* cs = sc->coarsesiglist; cs; cs = cs->next) {
-        fprintf(f, "        <VSVideoSegment>\n");
-        fprintf(f, "          <StartFrameOfSegment>%" PRIu32 "</StartFrameOfSegment>\n", cs->first->index);
-        fprintf(f, "          <EndFrameOfSegment>%" PRIu32 "</EndFrameOfSegment>\n", cs->last->index);
-        fprintf(f, "          <MediaTimeOfSegment>\n");
-        fprintf(f, "            <StartMediaTimeOfSegment>%" PRIu64 "</StartMediaTimeOfSegment>\n", cs->first->pts);
-        fprintf(f, "            <EndMediaTimeOfSegment>%" PRIu64 "</EndMediaTimeOfSegment>\n", cs->last->pts);
-        fprintf(f, "          </MediaTimeOfSegment>\n");
-        for (int i = 0; i < 5; i++) {
-            fprintf(f, "          <BagOfWords>");
-            for (int j = 0; j < 31; j++) {
-                uint8_t n = cs->data[i][j];
-                if (j < 30) {
-                    fprintf(f, "%d  %d  %d  %d  %d  %d  %d  %d  ", (n & 0x80) >> 7,
-                                                                   (n & 0x40) >> 6,
-                                                                   (n & 0x20) >> 5,
-                                                                   (n & 0x10) >> 4,
-                                                                   (n & 0x08) >> 3,
-                                                                   (n & 0x04) >> 2,
-                                                                   (n & 0x02) >> 1,
-                                                                   (n & 0x01));
-                } else {
-                    /* print only 3 bit in last byte */
-                    fprintf(f, "%d  %d  %d ", (n & 0x80) >> 7,
-                                              (n & 0x40) >> 6,
-                                              (n & 0x20) >> 5);
-                }
-            }
-            fprintf(f, "</BagOfWords>\n");
-        }
-        fprintf(f, "        </VSVideoSegment>\n");
-    }
-
-    /* finesignatures */
-    for (FineSignature* fs = sc->finesiglist; fs; fs = fs->next) {
-        fprintf(f, "        <VideoFrame>\n");
-        fprintf(f, "          <MediaTimeOfFrame>%" PRIu64 "</MediaTimeOfFrame>\n", fs->pts);
-        /* confidence */
-        fprintf(f, "          <FrameConfidence>%d</FrameConfidence>\n", fs->confidence);
-        /* words */
-        fprintf(f, "          <Word>");
-        for (int i = 0; i < 5; i++) {
-            fprintf(f, "%d ", fs->words[i]);
-            if (i < 4) {
-                fprintf(f, " ");
-            }
-        }
-        fprintf(f, "</Word>\n");
-        /* framesignature */
-        fprintf(f, "          <FrameSignature>");
-        for (int i = 0; i< SIGELEM_SIZE/5; i++) {
-            if (i > 0) {
-                fprintf(f, " ");
-            }
-            fprintf(f, "%d ", fs->framesig[i] / pot3[0]);
-            for (int j = 1; j < 5; j++)
-                fprintf(f, " %d ", fs->framesig[i] % pot3[j-1] / pot3[j] );
-        }
-        fprintf(f, "</FrameSignature>\n");
-        fprintf(f, "        </VideoFrame>\n");
-    }
-    fprintf(f, "      </VideoSignatureRegion>\n");
-    fprintf(f, "    </Descriptor>\n");
-    fprintf(f, "  </DescriptionUnit>\n");
-    fprintf(f, "</Mpeg7>\n");
-    fflush(f);
-
-    return 0;
 }

@@ -38,5 +38,10 @@ extern int testFailures;
 
 void suiteLedger(void);
 void suiteLookup(void);
+void suiteEvaluate(void);
+void suiteArgs(void);
+void suiteWalk(void);
+void suiteHough(void);
+void suiteTie(void);
 
 #endif

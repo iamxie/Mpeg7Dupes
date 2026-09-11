@@ -126,8 +126,31 @@ get_l1dist(
     return dist;
 }
 
+/* Distances between the words of two coarse signatures are Jaccard
+ * distances, 1 - |A and B| / |A or B|, kept in ten-thousandths so that the
+ * thresholds stay integers: 0 for the same set, JACCARD_SCALE for sets that
+ * share nothing. It used to be computed as an integer division of the two
+ * popcounts, which is 0 or 1 and a similarity rather than a distance, so at
+ * the documented thresholds of 9000 and 60000 the filter never rejected a
+ * pair, and turned down to 1 it rejected the pairs that agreed. */
+#define JACCARD_SCALE 10000
+
+static unsigned int
+jaccard_distance(const uint8_t *first, const uint8_t *second)
+{
+    unsigned int inter = intersection_word(first, second);
+    unsigned int uni = union_word(first, second);
+
+    /* Two empty words are the same set. */
+    if (uni == 0)
+        return 0;
+    return (unsigned int) (((uint64_t) (uni - inter) * JACCARD_SCALE) / uni);
+}
+
 /**
- * calculates the jaccard distance and evaluates a pair of coarse signatures as good
+ * evaluates a pair of coarse signatures as good: at most two of the five
+ * words may be further apart than thworddist, and the five distances
+ * together may not exceed thcomposdist
  * @return 0 if pair is bad, 1 otherwise
  */
 static int
@@ -138,12 +161,9 @@ get_jaccarddist(
 {
     int composdist = 0, cwthcount = 0;
     for (int i = 0; i < 5; i++) {
-        unsigned int jaccarddist = intersection_word(first->data[i],\
+        unsigned int jaccarddist = jaccard_distance(first->data[i],
             second->data[i]);
 
-        if (jaccarddist > 0) {
-            jaccarddist /= union_word(first->data[i], second->data[i]);
-        }
         if (jaccarddist >= sc->thworddist) {
             if (++cwthcount > 2) {
                 /* more than half (5/2) of distances are too wide */
@@ -327,8 +347,14 @@ get_matching_parameters(
 
     if (hmax > 0) {
         hmax = floor(0.7*hmax);
+        /* The whole accumulator, both signs of offset. The scan used to stop
+           at HOUGH_MAX_OFFSET, the middle of the row, so an alignment whose
+           second frame sat later than its first was never a candidate; it
+           was only found, if at all, from a neighbouring segment pair where
+           the same alignment appeared with a negative offset, and a wrong
+           cell could outvote it in the meantime. */
         for (unsigned int i = 0; i < MAX_FRAMERATE; i++) {
-            for (unsigned int j = 0; j < HOUGH_MAX_OFFSET; j++) {
+            for (unsigned int j = 0; j < 2 * HOUGH_MAX_OFFSET + 1; j++) {
                 if (hmax < hspace[i][j].score) {
                     if (c == NULL) {
                         c = (MatchingInfo*) calloc(1, sizeof(MatchingInfo));
@@ -342,7 +368,7 @@ get_matching_parameters(
                     }
                     c->framerateratio = (i+1.0) / 30;
                     c->score = hspace[i][j].score;
-                    c->offset = j-90;
+                    c->offset = (int) j - HOUGH_MAX_OFFSET;
                     c->first = hspace[i][j].a;
                     c->second = hspace[i][j].b;
                     c->next = NULL;
@@ -358,6 +384,17 @@ get_matching_parameters(
     return cands;
 }
 
+/* One step of the walk in the given direction. The slower stream moves one
+ * frame; the faster one moves as many frames as keep the two in step at the
+ * ratio frr, second over first: one or two of them at the usual ratios,
+ * more at extreme ones. The count comes from rounding the accumulated
+ * position, not the increment. The cast used to bind to the 0.5 alone,
+ * (int) 0.5 + fcount * frr, which made the step frr truncated: 0 below 1.0,
+ * which moved the first clip two frames for every frame of the second, and
+ * 1 up to 2.0, which moved them in lockstep, so any ratio but 1.0 walked
+ * the two clips at the wrong rates and lost the match within a few frames.
+ * bcount counts the steps, as it always has, so it is the number of frames
+ * of the slower stream the walk covered. */
 static int
 iterate_frame(
 	double frr,
@@ -367,105 +404,31 @@ iterate_frame(
 	int *bcount,
 	int dir)
 {
-    int step;
+    FineSignature **slow, **fast;
+    int steps, end = dir == DIR_NEXT ? DIR_NEXT_END : DIR_PREV_END;
 
-    /* between 1 and 2, because frr is between 1 and 2 */
-    step = ((int) 0.5 + fcount     * frr) /* current frame */
-          -((int) 0.5 + (fcount-1) * frr);/* last frame */
-
-    if (dir == DIR_NEXT) {
-        if (frr >= 1.0) {
-            if ((*a)->next) {
-                *a = (*a)->next;
-            } else {
-                return DIR_NEXT_END;
-            }
-
-            if (step == 1) {
-                if ((*b)->next) {
-                    *b = (*b)->next;
-                    (*bcount)++;
-                } else {
-                    return DIR_NEXT_END;
-                }
-            } else {
-                if ((*b)->next && (*b)->next->next) {
-                    *b = (*b)->next->next;
-                    (*bcount)++;
-                } else {
-                    return DIR_NEXT_END;
-                }
-            }
-        } else {
-            if ((*b)->next) {
-                *b = (*b)->next;
-                (*bcount)++;
-            } else {
-                return DIR_NEXT_END;
-            }
-
-            if (step == 1) {
-                if ((*a)->next) {
-                    *a = (*a)->next;
-                } else {
-                    return DIR_NEXT_END;
-                }
-            } else {
-                if ((*a)->next && (*a)->next->next) {
-                    *a = (*a)->next->next;
-                } else {
-                    return DIR_NEXT_END;
-                }
-            }
-        }
-        return DIR_NEXT;
+    if (frr >= 1.0) {
+        slow = a; fast = b;
+        steps = (int) (0.5 + fcount * frr) - (int) (0.5 + (fcount - 1) * frr);
     } else {
-        if (frr >= 1.0) {
-            if ((*a)->prev) {
-                *a = (*a)->prev;
-            } else {
-                return DIR_PREV_END;
-            }
-
-            if (step == 1) {
-                if ((*b)->prev) {
-                    *b = (*b)->prev;
-                    (*bcount)++;
-                } else {
-                    return DIR_PREV_END;
-                }
-            } else {
-                if ((*b)->prev && (*b)->prev->prev) {
-                    *b = (*b)->prev->prev;
-                    (*bcount)++;
-                } else {
-                    return DIR_PREV_END;
-                }
-            }
-        } else {
-            if ((*b)->prev) {
-                *b = (*b)->prev;
-                (*bcount)++;
-            } else {
-                return DIR_PREV_END;
-            }
-
-            if (step == 1) {
-                if ((*a)->prev) {
-                    *a = (*a)->prev;
-                } else {
-                    return DIR_PREV_END;
-                }
-            } else {
-                if ((*a)->prev && (*a)->prev->prev) {
-                    *a = (*a)->prev->prev;
-                } else {
-                    return DIR_PREV_END;
-                }
-            }
-        }
-        return DIR_PREV;
+        slow = b; fast = a;
+        steps = (int) (0.5 + fcount / frr) - (int) (0.5 + (fcount - 1) / frr);
     }
+
+    {
+        FineSignature *n = dir == DIR_NEXT ? (*slow)->next : (*slow)->prev;
+        if (!n)
+            return end;
+        *slow = n;
+    }
+    for (int k = 0; k < steps; ++k) {
+        FineSignature *n = dir == DIR_NEXT ? (*fast)->next : (*fast)->prev;
+        if (!n)
+            return end;
+        *fast = n;
+    }
+    (*bcount)++;
+    return dir;
 }
 
 static MatchingInfo
@@ -552,12 +515,11 @@ evaluate_parameters(
                 status |= STATUS_BEGIN_REACHED;
                 break;
             }
-
-            if (sc->thdi != 0 && bcount >= sc->thdi) {
-                break; /* enough frames found */
-            }
         }
 
+        /* thdi is a filter on the finished walk and nothing else. It used to
+           end the walk as well, the moment bcount reached it, so every match
+           came back exactly thdi frames long and never reached an end. */
         if (bcount < sc->thdi)
             continue; /* matching sequence is too short */
         if ((double) goodfcount / (double) fcount < sc->thit)
@@ -577,8 +539,14 @@ evaluate_parameters(
 
         /* Reaching both ends wins outright in every mode but MODE_LONGEST,
            where it is only as good as the frames behind it. */
+        /* Among candidates of the same length the closer one wins, so the
+           answer does not depend on the order the candidates came up in,
+           which the search does not promise. It used to be the first one
+           evaluated. */
         int better = (sc->mode == MODE_LONGEST)
-            ? bcount > bestmatch.matchframes
+            ? (bcount > bestmatch.matchframes
+               || (bcount == bestmatch.matchframes
+                   && meandist < bestmatch.meandist))
             : (meandist < minmeandist
                || status == (STATUS_END_REACHED | STATUS_BEGIN_REACHED)
                || sc->mode == MODE_FAST);

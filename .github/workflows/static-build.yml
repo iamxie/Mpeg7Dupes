@@ -23,6 +23,10 @@ name: Static build
 # or control characters. Every expression here still reaches the shell through
 # env and quoted expansion rather than by interpolation, tag name included,
 # because that is the habit that stays correct when the trigger list grows.
+#
+# Verification on ordinary pushes and pull requests is ci.yml, which runs the
+# same tests without ever holding write permission. Only the release job here
+# has it.
 
 on:
   schedule:
@@ -33,7 +37,11 @@ on:
       - 'v*'               # v0.1, v0.2, v1.0 ...
 
 permissions:
-  contents: write          # needed to publish the release
+  contents: read
+
+env:
+  # The same pin as ci.yml and the Dockerfile; see ci.yml for why.
+  SLOG_REF: v1.8.49
 
 jobs:
   guard:
@@ -96,12 +104,9 @@ jobs:
 
       - name: Build and install slog
         run: |
-          # The default branch, not a tag. The newest tag is v1.8.49 and its
-          # header declares 1.9, while 1.6.2 keeps its Makefile in src/ so a
-          # plain make there fails. See the README.
-          git clone --depth 1 https://github.com/kala13x/slog /tmp/slog
+          git clone --quiet --depth 1 --branch "$SLOG_REF" https://github.com/kala13x/slog /tmp/slog
           cd /tmp/slog
-          echo "slog $(git rev-parse --short HEAD)"
+          echo "slog $SLOG_REF at $(git rev-parse --short HEAD)"
           make
           sudo make install
 
@@ -120,36 +125,20 @@ jobs:
           fi
 
       # Fixtures are checked in, so this covers the comparison itself without
-      # depending on how the runner's ffmpeg happens to encode.
+      # depending on how the runner's ffmpeg happens to encode. STATIC=1 has
+      # `make test` test the static binary built above instead of rebuilding a
+      # release one over it, and REQUIRE_PYTHON=1 fails the run if the Python
+      # suites cannot execute rather than letting them skip.
       - name: Run the test suite
-        run: make test
+        run: make test STATIC=1 REQUIRE_PYTHON=1
 
       # The suite compares signatures that were generated elsewhere, so this
-      # still earns its place: it takes a clip all the way from video to match
-      # on this machine, and would catch the signature format drifting.
+      # still earns its place: tests/smoke.sh takes three synthetic clips from
+      # video to result through tools/find_reuse.py on this machine, twice,
+      # and would catch the signature format drifting or the cache no longer
+      # recognising its own files. STATIC=1 so it runs the binary above.
       - name: Smoke test
-        run: |
-          set -e
-          work="$(mktemp -d)"
-          cd "$work"
-          ffmpeg -v error -f lavfi -i 'mandelbrot=size=320x180:rate=25' -t 120 \
-            -c:v libx264 -preset ultrafast -pix_fmt yuv420p a.mp4
-          # b is a rescaled copy of a with five seconds cut from the head
-          ffmpeg -v error -ss 5 -t 110 -i a.mp4 -vf scale=240:136 \
-            -c:v libx264 -preset medium -crf 23 -pix_fmt yuv420p b.mp4
-          for f in a b; do
-            ffmpeg -v error -i "$f.mp4" -vf "fps=5,signature=filename=$f.bin" \
-              -map 0:v:0 -an -f null -
-          done
-          out="$("$GITHUB_WORKSPACE/bin/mpeg7Dupes.elf" -f csv -m full -i 0 a.bin b.bin 2>/dev/null)"
-          echo "$out"
-          # Header plus exactly one row, and it has to be a whole match
-          rows="$(echo "$out" | tail -n +2 | grep -c . || true)"
-          whole="$(echo "$out" | tail -n +2 | head -1 | awk -F, '{print $NF}')"
-          if [ "$rows" != "1" ] || [ "$whole" != "1" ]; then
-            echo "::error::expected exactly one whole match, got $rows row(s), whole=$whole"
-            exit 1
-          fi
+        run: make smoke STATIC=1 REQUIRE_FFMPEG=1
 
       - name: Stage the artefact
         env:
@@ -170,6 +159,8 @@ jobs:
   release:
     needs: [guard, build]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write      # the only job that publishes anything
     steps:
       - uses: actions/download-artifact@v8
         with:
@@ -215,26 +206,29 @@ jobs:
           Download the binary for your architecture, `chmod +x` it, and run it.
           The `.sha256` beside each one is its checksum.
 
-          **Settings.** Pass `-i 0`; any other value truncates the match. To
-          find duplicates use `-x 290 -m longest`, then keep the pairs whose
-          match covers at least 40 per cent of the shorter file. Measured over
-          4560 pairs built from 96 edited videos, that finds 717 of 720 true
-          duplicates with no false positives; `benchmark.md` has the corpus,
-          the method and the limits. `tools/find_reuse.py` applies all of it.
+          **Settings.** The defaults are the measured ones since build 4:
+          `-m longest -x 290 -i 0 -k 1 -b 0.5`. Crop any bars off first, run
+          `mpeg7dupes -l list.txt`, and keep the pairs whose match covers at
+          least 40 per cent of the shorter file. On the corpus those settings
+          were tuned on, 96 edited videos from six sources, that found every
+          true duplicate with no false positives; no independent corpus has
+          been measured yet, and `benchmark.md` says what that does and does
+          not tell you. `tools/find_reuse.py` applies all of it.
           EOF
           fi
 
           cat >> notes.md <<'EOF'
 
           CI checks the binary reports `not a dynamic executable`, runs the test
-          suite, and smoke tests it against a rescaled and trimmed duplicate it
-          has to find.
+          suite, and takes three synthetic clips from video to result through
+          `tools/find_reuse.py`, twice, on the binary published here.
 
           Built without `-march=native`, so it runs on any CPU of the matching
           architecture. `make release` gives a faster binary if you are staying
           on one machine.
           EOF
 
+          # shellcheck disable=SC2016  # the backticks are markdown, not a command
           if [ -n "$VERSION" ]; then
             printf '\nReports: `%s`\n' "$VERSION" >> notes.md
           fi

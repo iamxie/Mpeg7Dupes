@@ -1,65 +1,215 @@
 # Tests
 
-    make test          # unit tests, then both shell suites
+    make test          # builds bin/mpeg7Dupes.elf, then the unit tests and the suites
+    make test STATIC=1 # the same, building and testing the static binary
+    make test DEBUG=1  # the same under AddressSanitizer
     make unit          # unit tests alone, builds its own binary
+    make smoke         # the one test that needs ffmpeg: video to result, twice
 
     MPEG7DUPES=/usr/local/bin/mpeg7dupes sh tests/run.sh
     MPEG7DUPES=/usr/local/bin/mpeg7dupes sh tests/ledger.sh
+    MPEG7DUPES=/usr/local/bin/mpeg7dupes sh tests/cli.sh
+    MPEG7DUPES=/usr/local/bin/mpeg7dupes sh tests/smoke.sh
+    sh tests/tools.sh  # the Python tools, no binary needed
 
-`run.sh` compares the six fixtures against each other and checks the result two
-ways. Named checks say what a given number means, so a failure names the
-property that broke. A recorded copy of the whole output in `expected/` catches
-everything the named checks do not think to ask about.
+`make test` needs no ffmpeg and takes a few seconds after the build. CI runs
+`make test` and `make smoke` on every push and pull request, on x86_64 and
+aarch64, and the release workflow runs both again on the static binary it is
+about to publish. Nothing in CI runs the video benchmark; that takes hours on
+private material and lives in `benchmark.md`.
+
+## Four layers, and what each is for
+
+**Unit tests** (`unit/`, C and Python) reach what the command line cannot:
+the hash table under the ledger, the option value parsers, the two inner
+functions every comparison runs through, constructed candidates walked
+through `evaluate_parameters`, and the signature store's decisions about when
+a signature may be reused. They are where a number or a state goes wrong.
+
+**Fixture regression** (`run.sh`) compares six checked-in signatures and
+checks the result against named properties and two recorded copies of the
+whole output, one per search mode. It protects the comparison's results
+without depending on how the ffmpeg on the machine happens to encode.
+
+**Mock integration** (`cli.sh`, `ledger.sh`, `unit/test_sigmake.py`,
+`unit/test_find_reuse.py`, and the root `test_make_signatures.py` outside
+this repository) runs the real programs against stand-ins for ffmpeg,
+ffprobe and, for the Python tools, mpeg7dupes itself, so that the cache, the
+failure paths and the shape of the data crossing between modules are tested
+without decoding anything.
+
+**Real-tool integration** (`smoke.sh`) is deliberately small: three
+synthetic clips through ffmpeg, the store and the binary via
+`tools/find_reuse.py`, twice. It is the only place the real pipeline runs,
+and what it catches is wiring: the signature format drifting, a filter
+argument ffmpeg no longer accepts, the cache failing to recognise its own
+files. It says nothing about accuracy beyond one easy case.
+
+Not every function has a mirror test. A behaviour change or a fixed defect
+gets a test that would have failed before it; the rest is covered by the
+observable results above.
+
+## Tests that pin a known limitation
+
+One place records behaviour that is kept as it is rather than as it should
+be, so that a change to it is noticed:
+
+- `run.sh` and `expected/compare.csv` record `-m full`, which is kept as a
+  mode with a known limitation: it stops at the first candidate that reaches
+  an end in each file. On `base` against `tailinsert` that is the wrong
+  region, and since build 7, which proposes candidates at both signs of
+  offset, on `base` against `headinsert` and `scaled` against `tailinsert`
+  it is a handful of frames at an extreme ratio that reach both ends of
+  these short fixtures. Named checks describe it against `longest` finding
+  the right region. `expected/compare-longest.csv` is the default mode and
+  the copy to read as the intended output.
+
+The coarse filter used to be pinned here as a known defect, an integer
+division that never reached its thresholds. Build 7 fixed it, and the
+checks in `unit/test_lookup.c` now state the intended behaviour: identical
+words at distance 0, words that share nothing at 10000, and the defaults
+rejecting a pair only when three of its five words share a tenth or less.
+
+When a limitation is lifted, update the expectation from the ground truth
+and let the recorded copy change with it.
+
+## The suites
+
+`run.sh` compares the six fixtures against each other in both modes and
+checks the result two ways. Named checks say what a given number means, so a
+failure names the property that broke: that a re-encode covers the whole
+clip, that an extract is found end to end, that the endpoints locate the
+extract inside a longer clip, that the two clips sharing content inside both
+files are scored as a real match rather than noise, and that `unrelated`
+stays under the noise floor. The recorded copies catch everything the named
+checks do not think to ask about. `UPDATE=1` rewrites them; do that only when
+the change is understood.
 
 `ledger.sh` covers `-s`. Its failure mode is silent: a pair wrongly skipped
-never appears in the output and nothing reports it, so every check there counts
-rows against a known total instead of looking for an error. It caught one real
-fault while being written, a ledger line loaded without ordering the pair
-first, which broke resuming from a hand-edited file.
+never appears in the output and nothing reports it, so every check counts
+rows against a known total instead of looking for an error. It covers the run
+record too: a fresh ledger carries one with an identity line per input; other
+settings, another binary and another build are refused with nothing compared;
+a hand-seeded ledger without a record is reused with a warning and given one;
+a new input adds exactly its own pairs; a changed input is refused by name; an
+output that cannot be written stops the run before any pair is recorded; and
+a run killed at an arbitrary point and resumed, joined and reduced by pair,
+equals one uninterrupted run with the ledger complete. Where the kill lands
+is printed, not controlled, and the check holds wherever it does.
+
+`cli.sh` covers the command line contract, and every case in it was wrong
+first: the defaults; that `-i` filters short candidates and leaves long ones
+whole; that `-b` reaches the core as the ratio it was given; that `-j 1` and
+every core report the same rows, and the two files in the other order the
+same matches; the values each option refuses; list files without a final newline, with CRLF endings or
+blank lines; names with commas, quotes, spaces and CJK, quoted in the CSV
+only when they need it; paths too long for the table, refused rather than
+cut; and signature files that are empty, truncated or random, which stop the
+run naming the file. Under `make test DEBUG=1` the malformed files go through
+the loader under AddressSanitizer.
+
+`smoke.sh` makes a source, a copy of it with the head cut off and scaled
+down, and an unrelated clip, and runs `tools/find_reuse.py` over them twice
+with ffmpeg and ffprobe replaced by stand-ins that log each call and hand it
+on. The first run has to fingerprint all three, report the copy as holding
+the source at the same speed, place it at the head of the copy and five
+seconds into the source, and leave the unrelated clip checked and unmatched.
+The second run has to give the same numbers, run ffprobe not at all, and
+call ffmpeg only to ask its version. Skips itself where there is no ffmpeg;
+`REQUIRE_FFMPEG=1` makes that a failure, which CI sets.
+
+`tools.sh` runs the Python suites under uv, or a bare interpreter, and skips
+itself where there is neither; `REQUIRE_PYTHON=1` makes that a failure,
+which CI sets.
 
 ## unit/
 
-Whatever the command line cannot reach. `tests/unit/harness.h` is forty lines
-of assertion macros; a framework would mean a vendored file and a build step
-for eighteen checks, which is not a trade worth making yet. Replace it when a
-test needs fixtures, setup and teardown, or parameterised cases.
+`harness.h` is a few assertion macros; a framework would mean a vendored
+file and a build step for what is here. Replace it when a test needs
+fixtures, setup and teardown, or parameterised cases.
 
-`test_ledger.c` covers the hash table. The one that earns its place is that the
-table stays at most half full: `ledgerInsert` probes until it finds an empty
-slot, so a table that ever filled would spin forever, and nothing else asserts
-the sizing that prevents it.
+`test_ledger.c` covers the hash table, above all that it stays at most half
+full, since `ledgerInsert` probes until it finds an empty slot and a table
+that ever filled would spin forever; and the run record and input digests
+without a binary in the way.
 
-`test_lookup.c` writes down how the two functions every comparison runs through
-actually behave, because both differ from what their names and documented
-defaults suggest and it took a long time to establish:
+`test_args.c` covers the two option value parsers: whole numbers with a
+range and ratios in `[0, 1]`, and what they refuse.
 
-- `get_l1dist` reads nothing from the context but a table of ternary digit
-  distances, so the frame distance is the same whatever the thresholds are.
-  Every threshold applies after it. That is what allows one recorded run to be
-  swept for thXh, thDi, thIt and minScore instead of comparing again per value.
-- `get_jaccarddist` divides two popcounts as integers and the union is never
-  smaller than the intersection, so the value is only ever 0 or 1 and cannot
-  reach the documented defaults of 9000 and 60000. The coarse filter accepts
-  every pair. Turned down to 1 it does fire, and it rejects the coarse
-  signatures that agree, because the value is a similarity being tested as a
-  distance.
+`test_lookup.c` covers the functions every comparison runs through, all of
+them static, so the file includes `signature_lookup.c` rather than linking
+against it. The frame distance reads nothing from the context but a table,
+so every threshold applies after it, which is what lets one recorded run
+be swept for `-x`, `-i`, `-b` and `-k` instead of comparing again per
+value. The coarse filter's Jaccard distance is checked at its scale and in
+its direction. `suiteEvaluate` walks constructed candidates through
+`evaluate_parameters`: two streams of identical frames with chosen frames
+spoiled, so the ratio of good frames is known exactly, and `-b` and `-i`
+are shown to do what their documentation says. Three suites were added
+with build 7, each of which failed on build 6: `suiteWalk` plays one
+stream at 0.8x and at 1.25x of the other, with frames whose distance is
+exactly their difference in position, and requires the walk to cover the
+slower clip with every frame good from the start, from the end and from
+the middle; `suiteHough` delays one stream by twenty frames and requires
+the alignment to be proposed at ratio 1.0 and offset +20, where the
+candidate scan used to stop at the middle of the accumulator and only
+negative offsets were ever proposed; `suiteTie` gives `longest` two
+candidates of the same length and requires the closer one to win whichever
+comes first.
 
-Both functions are static, so `test_lookup.c` includes `signature_lookup.c`
-instead of linking against it, and the Makefile keeps that source out of the
-test binary's other half. The unit target compiles sources rather than reusing
-`build/`, so running it cannot leave `-march=native` objects behind for a later
-`make static` to pick up.
+`test_sigstore.py` covers when a signature may be reused and when it must
+not be: an unchanged file is recognised from a stat, a changed one is not,
+including one rewritten at the same size within the same second; two paths
+can share one content; a retuned detector retires exactly the cropped
+signatures. A row in the index is not enough on its own, the file has to be
+there and be a whole signature by its header and size. A schema 1 index is
+migrated in place.
+
+`test_sigmake.py` covers making one signature with ffmpeg and ffprobe
+replaced by the stand-ins in `fakesig.py`: a temporary name and a rename
+into place, so a failed, truncated or empty result leaves nothing behind; a
+second call reuses the store without running ffmpeg; a renamed copy reuses
+it too; a failed `--overwrite` keeps the old file and row; the bar decision's
+four states against a stubbed detector, the unreadable one failing the file
+rather than recording a signature with no bars; and the detector being
+handed the caller's ffmpeg and ffprobe.
+
+`test_find_reuse.py` runs `find_reuse.py` as a whole program against the
+same stand-ins plus one for `mpeg7dupes`, and covers the contract of the
+command: every requested file in the record with a status, a file that
+cannot be read recorded with the stage and reason and exit status 1, a run
+with no match complete at 0, a candidate that is a source skipped, two
+copies of a source both reported, an overrun keeping its raw numbers, a
+speed ratio other than 1.0 flagged, a failing `mpeg7dupes` at 2, the coarse
+filter left on by default and turned off by `--no-coarse-filter` with
+`-d 10001`, the record and the page saying which way the run was made, and
+the page rendered from the record saying what the terminal said. The seek that
+parks each player was checked by hand in a browser once, since only a
+browser can say whether the script runs; it is not automated, and the page
+has to be served with HTTP Range support or opened from disk for it to
+work.
+
+`test_detect_bars.py` runs the bar detector's `analyse()` on frames drawn
+by hand, with ffprobe and ffmpeg replaced, and pins the case version 1 got
+wrong: a still shot with a moving clip in one sampling window, whose edges
+hold still but show something else, has no bars. Bars on moving picture,
+bars on a still shot with a moving advertisement, lettering inside a bar,
+and footage that is still throughout keep the answers they had.
+
+`test_tools.py` covers the pure functions behind `--json` and the HTML
+report: the phrasing of a position, the shape of the record, what goes in
+each cell, and that the player is seeked by attribute and script rather than
+by the `#t=` fragment alone, which Chromium ignores on an element that
+preloads only metadata.
 
 ## The fixtures
 
-Signatures, not videos, and they are checked in rather than generated. A
-signature depends on how ffmpeg decoded and scaled the clip, so building them
-during the test would make the expected output move with the ffmpeg version,
-and the test would report the encoder changing as the comparison breaking. As
-files, they pin the input and the test covers only the comparison code.
-
-Each is 30 seconds sampled at 5 fps, so 150 frames and about 14 kB, from
-synthetic sources. All six together are 66 kB.
+Signatures, not videos, and checked in rather than generated, because a
+signature depends on how ffmpeg decoded and scaled the clip, so building
+them during the test would make the expected output move with the ffmpeg
+version and the test would report the encoder changing as the comparison
+breaking. Each is 30 seconds sampled at 5 fps, 150 frames, from synthetic
+sources; `make-fixtures.sh` has the recipe.
 
 | Fixture | What it is | Why it is here |
 | --- | --- | --- |
@@ -70,20 +220,22 @@ synthetic sources. All six together are 66 kB.
 | `tailinsert.bin` | `excerpt`, then that same 10s | the same insert at the other end |
 | `unrelated.bin` | a third pattern | shares nothing, so it sets the noise floor |
 
-`headinsert` and `tailinsert` exist because their shared region sits inside both
-files. Neither side reaches both of its own ends, so the code cannot settle the
-match by running off the edges and has to choose a candidate on its merits.
-That choice used to be inverted: `base` against `headinsert` scored 14, and 506
-once it was fixed. Two named checks guard it.
+`headinsert` and `tailinsert` exist because their shared region sits inside
+both files: neither side reaches both of its own ends, so the code cannot
+settle the match by running off the edges and has to choose a candidate on
+its merits. That choice used to be inverted, and two named checks guard it.
 
-`sh tests/make-fixtures.sh` rebuilds them and needs ffmpeg. Rerunning it
-changes the signatures and therefore `expected/compare.csv`, so it is not part
-of the suite. Regenerate only when you mean to.
+What the recorded copies were made with: the fixtures on 2026-09-06, with
+the ffmpeg then on PATH, whose version was not written down; the copies with
+build 7. `compare.csv` did not change from build 2 to build 6; build 7
+changed both copies, and the section above says how. Rerunning `make-fixtures.sh` changes the signatures and therefore
+both recorded copies, so it is not part of the suite. Regenerate only when
+you mean to, and record the ffmpeg version when you do.
 
 ## What is not covered
 
-`headinsert` against `tailinsert` shares both the insert and the content. The
-code stops searching at the first match that reaches both ends, so which of the
-two it reports depends on the order candidates come up in. Here it lands on the
-content, which is the answer we want, so this fixture set does not reproduce
-that fault. The todo list describes it.
+`headinsert` against `tailinsert` shares both the insert and the content, so
+which of the two `full` reports depends on the order candidates come up in;
+here it lands on the content. `longest` is not affected. Accuracy on real
+footage is not covered by any test here; `benchmark.md` is the measurement,
+and it says what it does and does not tell you.

@@ -22,7 +22,7 @@ enum signatureType {
 
 
 enum formatTypes {
-	BEAUTIFUL, CSV
+	CSV
 };
 
 struct arguments {
@@ -33,7 +33,10 @@ struct arguments {
     enum lookup_mode mode;
     enum signatureType sigType;
     enum formatTypes outputFormat;
-	double thD, thDc, thXh, thDi, thIt, minScore;
+    /* Integers where the core holds integers, so a value cannot change on the
+       way in. thIt is the one ratio. */
+    int thD, thDc, thXh, thDi, minScore;
+    double thIt;
     char **filePaths;
     unsigned int numberOfPaths;
     /* 0 means every core; -j sets an explicit count. */
@@ -54,7 +57,6 @@ static struct entry dict[] = {
     {"full", MODE_FULL},
     {"longest", MODE_LONGEST},
     {"csv", CSV},
-    {"beautiful", BEAUTIFUL},
     /* numberForKey walks until it reads a null name, so the list has to end
        with one. Without it an unrecognised keyword read past the array and
        took the process with it. */
@@ -63,6 +65,14 @@ static struct entry dict[] = {
 
 
 int numberForKey(char *key);
+
+/* Strict number parsing for option values. Each returns 1 and stores the
+   value, or returns 0 when text is empty, has anything after the number, is
+   not finite, or lies outside the range: [lo, hi] for the integer, [0, 1] for
+   the ratio. atoi and atof used to turn "abc" into 0 and "0.5x" into 0.5
+   without a word. */
+int parseIntOption(const char *text, long lo, long hi, long *out);
+int parseRatioOption(const char *text, double *out);
 
 struct arguments parseArguments(int, char**);
 

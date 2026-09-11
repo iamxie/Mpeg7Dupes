@@ -9,6 +9,16 @@ main(void) {
     suiteLedger();
     printf("\nLookup\n");
     suiteLookup();
+    printf("\nEvaluate\n");
+    suiteEvaluate();
+    printf("\nArguments\n");
+    suiteArgs();
+    printf("\nWalk\n");
+    suiteWalk();
+    printf("\nHough\n");
+    suiteHough();
+    printf("\nTie\n");
+    suiteTie();
 
     printf("\n%d checks", testChecks);
     if (testFailures)
