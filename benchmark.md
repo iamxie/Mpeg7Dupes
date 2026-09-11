@@ -26,7 +26,7 @@ Each setting, and why:
 
 | Flag | Value | Reason |
 | --- | --- | --- |
-| `-m` | `longest` | `full` stops the search too early on a common real-world layout and loses 17 per cent of true duplicates. See [Mode](#mode-longest-beats-full) |
+| `-m` | `longest` | `full` stops the search too early on a common real-world layout and loses 17 per cent of true duplicates. See [Mode](#mode-longest-beats-full). Both `full` and `fast` were removed in build 10 |
 | `-x` | `290` | The last threshold before black bars start matching unrelated videos to each other. See [The threshold trade-off](#the-threshold-trade-off) |
 | `-i` | `0` | Every walk is reported in full. Build 4 made `-i` a filter on the finished walk; up to build 3 any other value truncated the match, which is why every run here used 0 |
 | `-b` | `0.5` | thIt. The sweep ran with `-b 0.1`, and on build 2 that value was truncated to 0 on the way in, so nothing was filtered during the search. A reported candidate never has fewer than about one good frame in six, and build 5 at the default 0.5 gives the same rows as 0.1 on the regression subset ([Build 5](#build-5-on-the-same-signatures)) |
@@ -129,6 +129,9 @@ Then the cropped set, all 96 files at six thresholds in `longest`.
 
 ## Mode: `longest` beats `full`
 
+Kept as history: build 10 removed `full` and `fast`, on this measurement and
+on the fixtures, where `full` settled on a ten-frame candidate at an extreme
+ratio once build 7 proposed more candidates. `longest` is the only mode.
 This is the largest single effect measured, and it is not subtle.
 
 `full` stops searching as soon as one walk has reached an end in *each* file.
@@ -1023,9 +1026,9 @@ the digests of its inputs, which `-s` writes into the ledger for you.
   selected, with the matched region, frame counts and boundaries unchanged;
   it is 27 per cent faster and rejects the most similar coarse signatures, so
   it is not a safe optimisation. `todo.md` has the audit.
-- **`-m fast` is not in the sweep.** It takes the first candidate that
-  qualifies where `full` at least chooses between them, and in every pilot it
-  equalled `full` or was worse.
+- **`-m fast` is not in the sweep.** It took the first candidate that
+  qualified where `full` at least chose between them, and in every pilot it
+  equalled `full` or was worse. Both went in build 10.
 - **`matchframes` can exceed the file length by one.** Not because the seed
   is counted twice, which an earlier note here claimed and a check of the
   signature headers refuted: the frame estimate in the corpus's frame table

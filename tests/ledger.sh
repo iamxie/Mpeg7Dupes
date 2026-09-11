@@ -39,10 +39,10 @@ ls -1 *.bin > "$work/list.txt"
 run() {
     # $1 output file, $2 ledger or empty
     if [ -n "$2" ]; then
-        "$bin" -f csv -m full -i 0 -k 1 -b 0.1 -l "$work/list.txt" -s "$2" \
+        "$bin" -f csv -m longest -i 0 -k 1 -b 0.1 -l "$work/list.txt" -s "$2" \
             > "$1" 2>> "$work/log"
     else
-        "$bin" -f csv -m full -i 0 -k 1 -b 0.1 -l "$work/list.txt" \
+        "$bin" -f csv -m longest -i 0 -k 1 -b 0.1 -l "$work/list.txt" \
             > "$1" 2>> "$work/log"
     fi
 }
@@ -122,7 +122,7 @@ check "and is given a record for next time" \
 refused() {
     # $1 ledger, then the extra arguments; prints "refused <n rows>"
     local ledger="$1"; shift
-    if "$bin" -f csv -m full -i 0 -k 1 -b 0.1 -l "$work/list.txt" -s "$ledger" \
+    if "$bin" -f csv -m longest -i 0 -k 1 -b 0.1 -l "$work/list.txt" -s "$ledger" \
             "$@" > "$work/r.csv" 2> "$work/r.err"; then
         echo "accepted $(rows "$work/r.csv")"
     else
@@ -153,9 +153,9 @@ check "and that one says to go back to that build or start over" \
 # Adding a file compares only the pairs it forms; the rest stay skipped.
 cp unrelated.bin "$work/seventh.bin"
 { cat "$work/list.txt"; echo "$work/seventh.bin"; } > "$work/seven.txt"
-"$bin" -f csv -m full -i 0 -k 1 -b 0.1 -l "$work/seven.txt" > "$work/seven_full.csv" 2>> "$work/log"
+"$bin" -f csv -m longest -i 0 -k 1 -b 0.1 -l "$work/seven.txt" > "$work/seven_full.csv" 2>> "$work/log"
 cp "$work/a.ledger" "$work/g.ledger"
-"$bin" -f csv -m full -i 0 -k 1 -b 0.1 -l "$work/seven.txt" -s "$work/g.ledger" \
+"$bin" -f csv -m longest -i 0 -k 1 -b 0.1 -l "$work/seven.txt" -s "$work/g.ledger" \
     > "$work/g.csv" 2>> "$work/log"
 check "a new input adds exactly its own pairs" \
     "$(rows "$work/g.csv")" "$(( $(rows "$work/seven_full.csv") - $(rows "$work/full.csv") ))"
@@ -169,10 +169,10 @@ check "and seven identity lines" "$(grep -c '^#input' "$work/g.ledger")" 7
 mkdir "$work/copy"
 cp *.bin "$work/copy/"
 ( cd "$work/copy" && ls -1 *.bin > "$work/copy.txt" )
-( cd "$work/copy" && "$bin" -f csv -m full -i 0 -k 1 -b 0.1 -l "$work/copy.txt" \
+( cd "$work/copy" && "$bin" -f csv -m longest -i 0 -k 1 -b 0.1 -l "$work/copy.txt" \
     -s "$work/h.ledger" > "$work/h1.csv" 2>> "$work/log" )
 cp scaled.bin "$work/copy/excerpt.bin"
-if ( cd "$work/copy" && "$bin" -f csv -m full -i 0 -k 1 -b 0.1 -l "$work/copy.txt" \
+if ( cd "$work/copy" && "$bin" -f csv -m longest -i 0 -k 1 -b 0.1 -l "$work/copy.txt" \
         -s "$work/h.ledger" > "$work/h2.csv" 2> "$work/h2.err" ); then
     verdict="accepted"
 else
@@ -184,7 +184,7 @@ check "and the message names it" "$(grep -c 'excerpt.bin changed' "$work/h2.err"
 # ---- an output that cannot be written ----
 # A pair is done only once its row is out. When the output cannot take the
 # row, the run stops and the ledger records no pair, so nothing is lost.
-if "$bin" -f csv -m full -i 0 -k 1 -b 0.1 -l "$work/list.txt" -s "$work/i.ledger" \
+if "$bin" -f csv -m longest -i 0 -k 1 -b 0.1 -l "$work/list.txt" -s "$work/i.ledger" \
         > /dev/full 2> "$work/i.err"; then
     verdict="exit 0"
 else
@@ -210,11 +210,11 @@ if command -v timeout >/dev/null 2>&1; then
         for f in *.bin; do cp "$f" "$work/big/$prefix-$f"; done
     done
     ( cd "$work/big" && ls -1 *.bin > "$work/big.txt" )
-    ( cd "$work/big" && "$bin" -f csv -m full -i 0 -k 1 -b 0.1 -l "$work/big.txt" \
+    ( cd "$work/big" && "$bin" -f csv -m longest -i 0 -k 1 -b 0.1 -l "$work/big.txt" \
         > "$work/big_full.csv" 2>> "$work/log" )
-    ( cd "$work/big" && timeout -s KILL 0.3 "$bin" -f csv -m full -i 0 -k 1 -b 0.1 \
+    ( cd "$work/big" && timeout -s KILL 0.3 "$bin" -f csv -m longest -i 0 -k 1 -b 0.1 \
         -l "$work/big.txt" -s "$work/j.ledger" > "$work/j1.csv" 2>> "$work/log" ) || true
-    ( cd "$work/big" && "$bin" -f csv -m full -i 0 -k 1 -b 0.1 -l "$work/big.txt" \
+    ( cd "$work/big" && "$bin" -f csv -m longest -i 0 -k 1 -b 0.1 -l "$work/big.txt" \
         -s "$work/j.ledger" > "$work/j2.csv" 2>> "$work/log" )
     # rows of both parts, one per pair, whichever part had it first
     { tail -n +2 "$work/j1.csv"; tail -n +2 "$work/j2.csv"; } | grep . \

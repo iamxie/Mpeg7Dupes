@@ -26,11 +26,12 @@ numberForKey(char *key)
     return numberForKeyIn(dict, key);
 }
 
-/* One table per option. The shared dict let -m accept "csv", which happens to
-   share a number with "full", and -f accept "fast". */
+/* One table per option. The shared dict let -m accept "csv" and -f accept a
+   mode name, because their numbers overlapped. longest is the only mode
+   since build 10; the option stays so that the guides' -m longest, and
+   tools/find_reuse.py, keep working. */
 static const struct entry modeWords[] = {
-    {"fast", MODE_FAST}, {"full", MODE_FULL}, {"longest", MODE_LONGEST},
-    {NULL, 0},
+    {"longest", MODE_LONGEST}, {NULL, 0},
 };
 static const struct entry formatWords[] = {
     {"csv", CSV}, {NULL, 0},
@@ -135,7 +136,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
         case 'j': intOption(state, "-j/--jobs", arg, 0, INT_MAX,
                       &arguments->jobs); break;
         case 'm': keywordOption(state, "-m/--lookup_mode", arg, modeWords,
-                      "fast, full, longest", (int *) &arguments->mode); break;
+                      "longest", (int *) &arguments->mode); break;
         case 't': keywordOption(state, "-t/--signature_type", arg, typeWords,
                       "binary, xml", (int *) &arguments->sigType); break;
         case 'd': intOption(state, "-d/--thD", arg, 0, INT_MAX,
@@ -165,7 +166,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
             arguments->ledgerFile = NULL;
             arguments->incrementalFile = NULL;
             /* longest, csv and no minimum length, which is what every guide
-               told people to pass by hand. fast and full stay available. */
+               told people to pass by hand. */
             arguments->mode = MODE_LONGEST;
             arguments->sigType = BINARY;
             arguments->outputFormat = CSV;
@@ -253,12 +254,13 @@ parseArguments(int argc, char **argv) {
             "every frame"},
         { "jobs", 'j', "{int}", 0, "Number of cores to use. Defaults to every "
             "core on the machine. A count above that is reduced to it"},
-        { "lookup_mode", 'm', "{fast,full,longest}", 0, "longest, the default, "
-            "ranks candidates by how much matched and never stops early, so it "
-            "does not settle for a shared opening when a longer match exists "
-            "further down the list. full weighs candidates by mean distance "
-            "but stops as soon as one reaches both ends. fast stops at the "
-            "first candidate that qualifies."},
+        { "lookup_mode", 'm', "{longest}", 0, "longest, the only mode since "
+            "build 10: it ranks candidates by how much matched, the closer one "
+            "winning a tie, and never stops early, so it does not settle for a "
+            "shared opening when a longer match exists further down the list. "
+            "full, which stopped as soon as a walk reached both ends, and fast, "
+            "which took the first candidate that qualified, were removed for "
+            "doing exactly that."},
         { "signature_type", 't', "{xml,binary}", 0, "Only binary is supported"},
         { "minimum_score", 'k', "{int}", 0, "Rows scoring below this are not "
             "printed. The default, 1, prints every candidate that matched; the "

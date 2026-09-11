@@ -6,20 +6,11 @@
 struct arguments args = {0};
 struct ledger ledger = {0};
 
-static const char *
-modeName(int mode) {
-    switch (mode) {
-        case MODE_FAST: return "fast";
-        case MODE_FULL: return "full";
-        case MODE_LONGEST: return "longest";
-        default: return "?";
-    }
-}
-
 /* What this run is, for the ledger's record: the build as it calls itself,
    a digest of the binary that is actually running, and every setting that
    changes the output. The digest is what tells two builds of uncommitted
-   code apart, which the version string cannot. */
+   code apart, which the version string cannot. -m and -f are not in it: each
+   has had one value since builds 10 and 8. */
 static void
 describeRun(struct ledgerRun *run) {
     long size = 0;
@@ -32,9 +23,8 @@ describeRun(struct ledgerRun *run) {
     else
         snprintf(run->binary, sizeof(run->binary), "unknown");
     snprintf(run->params, sizeof(run->params),
-        "-m %s -d %d -c %d -x %d -i %d -b %g -k %d",
-        modeName(args.mode), args.thD, args.thDc, args.thXh, args.thDi,
-        args.thIt, args.minScore);
+        "-d %d -c %d -x %d -i %d -b %g -k %d",
+        args.thD, args.thDc, args.thXh, args.thDi, args.thIt, args.minScore);
 }
 
 /* A pair is only done once its row is on its way out and its line is in the

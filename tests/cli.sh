@@ -65,16 +65,18 @@ check "and do not cut a match short" \
     "150,1"
 # The score counts votes for the alignment, not frames: on real pairs the old
 # default of 49 hid 900-frame duplicates. Every candidate that matched prints.
-# Since build 7 the coarse filter leaves the fixtures no noise rows in the
-# default mode, so the rows under 49 that show the old default is gone are
-# full's: two of its early stops score 14 and 5.
+# Since build 7 the coarse filter leaves the fixtures no noise rows, and since
+# build 10 there is no full mode whose early stops scored 14 and 5, so the
+# rows that show -k at work are real matches: three of the ten score 380 or
+# 381, and -k 400 has to drop exactly those.
 "$bin" -b 0.1 -l list.txt 2>/dev/null | tail -n +2 | sort > plain.csv
 "$bin" -b 0.1 -k 1 -l list.txt 2>/dev/null | tail -n +2 | sort > k1.csv
 check "and print every scoring row, the same as -k 1" \
     "$(cmp -s plain.csv k1.csv && echo same || echo differs)" same
-"$bin" -m full -b 0.1 -l list.txt 2>/dev/null | tail -n +2 | sort > fullplain.csv
-check "which includes rows scoring below the old default of 49" \
-    "$([ "$(awk -F, '$3 < 49' fullplain.csv | grep -c . || true)" -gt 0 ] && echo yes || echo no)" yes
+"$bin" -b 0.1 -k 400 -l list.txt 2>/dev/null | tail -n +2 | sort > k400.csv
+check "-k 400 drops the three rows scoring under 400 and nothing else" \
+    "$(grep -c . k400.csv || true),$(awk -F, '$3 < 400' k400.csv | grep -c . || true),$(awk -F, '$3 >= 400' plain.csv | grep -c . || true)" \
+    "7,0,7"
 
 # ---- -i filters the finished walks and leaves the long ones alone ----
 # In longest mode the reported candidate is the longest, so the rows of an
@@ -146,11 +148,12 @@ check "with three rows to compare" "$(grep -c . ab.txt || true)" 3
 
 # ---- values the options must refuse ----
 # Each of these used to be accepted: atof made "abc" 0, "0.5x" 0.5 and "1.5"
-# 1.5 on an option that could not hold it, and every run went to completion.
+# 1.5 on an option that could not hold it, and every run went to completion;
+# -m full and -m fast were modes up to build 9 and stopped the search early.
 for bad in "-b nan" "-b inf" "-b 1.5" "-b -0.1" "-b abc" "-b 0.5x" \
            "-i 1.5" "-i -1" "-i 1e3" "-x 12abc" "-x -5" "-d 1.5" "-c abc" \
-           "-k 0" "-k 1.5" "-j abc" "-j -1" "-m bogus" "-m csv" "-f bogus" \
-           "-f full" "-f beautiful"; do
+           "-k 0" "-k 1.5" "-j abc" "-j -1" "-m bogus" "-m csv" "-m full" \
+           "-m fast" "-f bogus" "-f full" "-f beautiful"; do
     # shellcheck disable=SC2086
     st=$(run $bad base.bin scaled.bin)
     check "$bad is refused" "$(refused "$st")" refused

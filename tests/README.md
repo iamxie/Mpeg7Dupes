@@ -49,20 +49,18 @@ Not every function has a mirror test. A behaviour change or a fixed defect
 gets a test that would have failed before it; the rest is covered by the
 observable results above.
 
-## Tests that pin a known limitation
+## Tests that used to pin a known limitation
 
-One place records behaviour that is kept as it is rather than as it should
-be, so that a change to it is noticed:
+Nothing here records behaviour kept as it is rather than as it should be
+any more. Two things used to be pinned that way.
 
-- `run.sh` and `expected/compare.csv` record `-m full`, which is kept as a
-  mode with a known limitation: it stops at the first candidate that reaches
-  an end in each file. On `base` against `tailinsert` that is the wrong
-  region, and since build 7, which proposes candidates at both signs of
-  offset, on `base` against `headinsert` and `scaled` against `tailinsert`
-  it is a handful of frames at an extreme ratio that reach both ends of
-  these short fixtures. Named checks describe it against `longest` finding
-  the right region. `expected/compare-longest.csv` is the default mode and
-  the copy to read as the intended output.
+`run.sh` and `expected/compare.csv` recorded `-m full`, a mode with a known
+limitation: it stopped at the first candidate that reached an end in each
+file, which on `base` against `tailinsert` was the wrong region and, from
+build 7, on two other pairs a handful of frames at an extreme ratio. Build
+10 removed `full` and `fast`, and `compare.csv` with them;
+`expected/compare-longest.csv` is the one recorded copy, and the check on
+`base` against `tailinsert` now states the intended region.
 
 The coarse filter used to be pinned here as a known defect, an integer
 division that never reached its thresholds. Build 7 fixed it, and the
@@ -225,17 +223,15 @@ both files: neither side reaches both of its own ends, so the code cannot
 settle the match by running off the edges and has to choose a candidate on
 its merits. That choice used to be inverted, and two named checks guard it.
 
-What the recorded copies were made with: the fixtures on 2026-09-06, with
-the ffmpeg then on PATH, whose version was not written down; the copies with
-build 7. `compare.csv` did not change from build 2 to build 6; build 7
-changed both copies, and the section above says how. Rerunning `make-fixtures.sh` changes the signatures and therefore
-both recorded copies, so it is not part of the suite. Regenerate only when
-you mean to, and record the ffmpeg version when you do.
+What the recorded copy was made with: the fixtures on 2026-09-06, with the
+ffmpeg then on PATH, whose version was not written down; the copy with build
+7, and build 10 gives the same rows. Up to build 9 there was a second copy,
+`compare.csv`, of `-m full`; it went with the mode. Rerunning
+`make-fixtures.sh` changes the signatures and therefore the recorded copy,
+so it is not part of the suite. Regenerate only when you mean to, and record
+the ffmpeg version when you do.
 
 ## What is not covered
 
-`headinsert` against `tailinsert` shares both the insert and the content, so
-which of the two `full` reports depends on the order candidates come up in;
-here it lands on the content. `longest` is not affected. Accuracy on real
-footage is not covered by any test here; `benchmark.md` is the measurement,
-and it says what it does and does not tell you.
+Accuracy on real footage is not covered by any test here; `benchmark.md` is
+the measurement, and it says what it does and does not tell you.

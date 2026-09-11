@@ -218,8 +218,6 @@ suiteEvaluate(void) {
         CHECK_EQ("thdi 30 keeps a 30-frame match", m.matchframes, 30);
         m = walk(MODE_LONGEST, 31, 0.5, a, b, 15);
         CHECK_EQ("thdi 31 rejects it", m.score, 0);
-        m = walk(MODE_FULL, 10, 0.5, a, b, 15);
-        CHECK_EQ("full mode reports the full match as well", m.matchframes, 30);
     }
 }
 

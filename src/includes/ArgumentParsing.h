@@ -53,8 +53,6 @@ struct entry {
 static struct entry dict[] = {
     {"binary", BINARY},
     {"xml", XML},
-    {"fast", MODE_FAST},
-    {"full", MODE_FULL},
     {"longest", MODE_LONGEST},
     {"csv", CSV},
     /* numberForKey walks until it reads a null name, so the list has to end

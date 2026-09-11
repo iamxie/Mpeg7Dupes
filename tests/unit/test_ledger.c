@@ -39,7 +39,7 @@ static void
 openUsual(struct ledger *ledger, const char *path, size_t extra) {
     char why[1024];
     if (!openAs(ledger, path, extra, "v0.1 b5", "0123456789abcdef",
-            "-m longest -x 290", why))
+            "-x 290", why))
         printf("  FAIL  could not open %s: %s\n", path, why);
 }
 
@@ -181,31 +181,31 @@ suiteLedger(void) {
 
         tempPath(path, sizeof(path));
         CHECK("a fresh ledger opens", openAs(&ledger, path, 8, "v0.1 b5",
-            "0123456789abcdef", "-m longest -x 290", why));
+            "0123456789abcdef", "-x 290", why));
         ledgerRecord(&ledger, "a.bin", "b.bin");
         ledgerClose(&ledger);
         CHECK("and starts with a comment for the reader",
             fileHas(path, "# mpeg7dupes ledger"));
         CHECK("and carries the run record",
             fileHas(path, "#run\tversion=v0.1 b5\tbinary=0123456789abcdef"
-                "\tparams=-m longest -x 290"));
+                "\tparams=-x 290"));
 
         CHECK("the same run reopens it", openAs(&ledger, path, 8, "v0.1 b5",
-            "0123456789abcdef", "-m longest -x 290", why));
+            "0123456789abcdef", "-x 290", why));
         CHECK("with its pairs", ledgerHas(&ledger, "a.bin", "b.bin"));
         ledgerClose(&ledger);
 
         CHECK("other settings are refused", !openAs(&ledger, path, 8,
-            "v0.1 b5", "0123456789abcdef", "-m longest -x 250", why));
+            "v0.1 b5", "0123456789abcdef", "-x 250", why));
         CHECK("and the reason names both", strstr(why, "-x 250")
             && strstr(why, "-x 290"));
         CHECK("another binary is refused", !openAs(&ledger, path, 8,
-            "v0.1 b5", "fedcba9876543210", "-m longest -x 290", why));
+            "v0.1 b5", "fedcba9876543210", "-x 290", why));
         CHECK("another build is refused", !openAs(&ledger, path, 8,
-            "v0.1 b6", "0123456789abcdef", "-m longest -x 290", why));
+            "v0.1 b6", "0123456789abcdef", "-x 290", why));
         CHECK("a refused open leaves nothing to close", ledger.slots == NULL);
         CHECK("and the file is untouched",
-            fileHas(path, "params=-m longest -x 290")
+            fileHas(path, "params=-x 290")
             && !fileHas(path, "-x 250"));
         unlink(path);
     }
@@ -218,13 +218,13 @@ suiteLedger(void) {
         tempPath(path, sizeof(path));
         writeFile(path, "a.bin\tb.bin\nc.bin\td.bin\n");
         CHECK("a recordless ledger is accepted", openAs(&ledger, path, 8,
-            "v0.1 b5", "0123456789abcdef", "-m longest", why));
+            "v0.1 b5", "0123456789abcdef", "-x 290", why));
         CHECK("with its pairs", ledgerHas(&ledger, "c.bin", "d.bin"));
         ledgerClose(&ledger);
         CHECK("and it carries a record afterwards",
             fileHas(path, "#run\tversion=v0.1 b5"));
         CHECK("which a different run is then refused by", !openAs(&ledger,
-            path, 8, "v0.1 b5", "0123456789abcdef", "-m full", why));
+            path, 8, "v0.1 b5", "0123456789abcdef", "-x 250", why));
         unlink(path);
     }
 

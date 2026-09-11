@@ -41,17 +41,15 @@
 #define DIFFELEM_SIZE 348 /* SIGELEM_SIZE - elem_a1 - elem_a2 */
 #define COARSE_SIZE 90
 
+/* The one mode since build 10, kept as a type so that -m longest still
+   parses into something. It ranks candidates by how much matched, the closer
+   one winning a tie, and carries on looking after one has reached both ends.
+   full stopped there, which was right when the only thing two clips shared
+   was the whole of one of them and wrong when they shared an opening, or,
+   from build 7, a few frames at an extreme ratio; fast took the first
+   candidate that qualified. benchmark.md keeps the measurement. */
 enum lookup_mode {
-    MODE_OFF,
-    MODE_FULL,
-    MODE_FAST,
-    /* Ranks candidates by how much matched, and carries on looking after one
-       has reached both ends. MODE_FULL stops there, which is right when the
-       only thing two clips share is the whole of one of them, and wrong when
-       they share an opening: that reaches an end of each between them and
-       ends the search on a match that is only the opening. */
-    MODE_LONGEST,
-    NB_LOOKUP_MODE
+    MODE_LONGEST
 };
 
 enum formats {
@@ -82,9 +80,10 @@ typedef struct FineSignature {
     struct FineSignature* next;
     struct FineSignature* prev;
     uint64_t pts;
-    /* Only set on the first and last frame of each coarse signature, which is
-       all the xml export needs. Every other frame keeps the zero it was
-       allocated with, so this cannot be used to order frames: use pts. */
+    /* Only set on the first and last frame of each coarse signature, by the
+       loader, and only read by the debug log. Every other frame keeps the
+       zero it was allocated with, so this cannot be used to order frames:
+       use pts. */
     uint32_t index;
     uint8_t confidence;
     uint8_t words[5];
@@ -128,9 +127,9 @@ typedef struct MatchingInfo {
 
 typedef struct StreamContext {
     AVRational time_base;
-    /* needed for xml_export */
-    int w; /* height */
-    int h; /* width */
+    /* Read from the file; only the -vvv dump prints them. */
+    int w; /* width */
+    int h; /* height */
 
     /* overflow protection */
     int divide;
@@ -139,7 +138,7 @@ typedef struct StreamContext {
     FineSignature* curfinesig;
 
     CoarseSignature* coarsesiglist;
-    CoarseSignature* coarseend; /* needed for xml export */
+    CoarseSignature* coarseend; /* the last one; set by the loader */
     /* helpers to store the alternating signatures */
     CoarseSignature* curcoarsesig1;
     CoarseSignature* curcoarsesig2;
@@ -148,7 +147,6 @@ typedef struct StreamContext {
     int midcoarse;   /* whether it is a coarsesignature beginning from 45 + i * 90 */
     uint32_t lastindex; /* helper to store amount of frames */
 
-    int exported; /* boolean whether stream already exported */
 } StreamContext;
 
 typedef struct SignatureContext {

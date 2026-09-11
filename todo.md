@@ -25,61 +25,7 @@ Done when: with every setting frozen, the set is run once and reported per
 scenario and for both questions in its own benchmark.md section, and the
 detector's decision is checked against the truth for every file.
 
-## 2. Remove the fast and full modes
-
-`-m fast` stops at the first candidate that qualifies and `-m full` stops
-at the first whose walk reaches both ends. Both exist to save time, and
-stopping early is exactly what makes them wrong: on the fixtures `full`
-settles on a ten-frame candidate at an extreme speed ratio, on the
-benchmark it recovered fewer of the true duplicates than `longest`, see
-benchmark.md, and the coarse filter of build 7 has already taken two thirds
-off the time they were meant to save. Decided on 2026-09-10. A quick mode,
-if one is ever wanted, gets defined from a need, such as stopping at the
-first candidate over a coverage threshold, not inherited from these.
-
-Done when: `-m` accepts only `longest`, the way `-f` accepts only `csv`,
-and `-m full` is refused with a message naming the option; `MODE_FAST`,
-`MODE_FULL` and the branches in `evaluate_parameters` and
-`lookup_signatures` that served them are gone; `tests/run.sh` runs
-`longest` only and `expected/compare.csv` goes with the mode, leaving
-`compare-longest.csv`; `tests/ledger.sh` and `tests/cli.sh` run `longest`
-with their expectations re-recorded; the README's `-m` row and
-`tests/README.md` say so; benchmark.md keeps the `full` against `longest`
-comparison as history, marked with the build that removed it. The root
-scripts `bench/sweep.sh` and `bench/run-plan.sh` mention `-m full` in a
-comment and two superseded runs and can stay as they are.
-
-## 3. A verify command that checks every signature in a directory
-
-An empty, truncated or malformed signature stops a run naming the file,
-but only when its turn comes, so in a large set a bad file is found late:
-with `-s` nothing done is lost, without it the run has to start over. What
-is wanted is a check that can be run on its own, over a whole directory,
-before any comparison: walk the directory, read each file's header, and
-apply the rule the loader and `sigstore.read_header` already apply, that
-the coarse and fine counts in the header have to be backed by the bytes in
-the file. About a millisecond a file.
-
-Done when: one command lists every file that is not a complete signature,
-with the reason, and exits 1 if there was any, 0 otherwise; a directory of
-good signatures with an empty, a truncated and a random file added names
-exactly those three; and the comparison can run the same check over its
-list before starting, so a bad file fails the run in seconds rather than
-hours.
-
-## 4. Load each signature once instead of once per comparison
-
-Every pair re-reads and re-parses the second signature from disk, so a file
-is parsed once for each comparison it takes part in; with 600 inputs that
-is roughly 600 parses per file. Done when: the read and parse time, the
-comparison time and the peak memory are measured separately on the
-regression set; a cache with a memory ceiling, or loading in batches, is
-chosen on those numbers rather than preloading the whole library; the
-results are unchanged row for row; and the ceiling holds on a set larger
-than memory. The outer-loop parallelism stays as it is unless a measurement
-says otherwise.
-
-## 5. Coverage at a speed ratio other than 1.0 counts the slower clip's frames
+## 2. Coverage at a speed ratio other than 1.0 counts the slower clip's frames (low)
 
 Since build 7 a copy at another speed is found and placed: a 1.25x and a
 0.8x copy of a 60 s synthetic clip both come back whole, with the ratio
@@ -103,21 +49,25 @@ ratio, or the source-side span is used instead, with a test on a
 speed-changed stand-in; and the grid error is either accepted in the
 record's limits or the ratio is refined from the walk.
 
-## 6. Native Windows build
+## 3. A verify command that checks every signature in a directory (low)
 
-Assessed on 2026-09-08 at commit `5ceaf19` by static analysis only and
-then shelved; commit `aaf7fa9` holds the full assessment. What blocks it,
-largest first: `<argp.h>` is GNU only and used shallowly, so argp-standalone
-or about 200 lines replace it; `#pragma omp atomic capture` is OpenMP 3.1,
-which MinGW-w64 handles and MSVC's `/openmp` does not; about 25 lines of
-POSIX calls (`dup`, `dup2`, `mkdir` with a mode, `__attribute__((optimize))`);
-and the libav headers, which are a dependency rather than a change. No
-inline assembly, no pthread, no signals, no directory walking; slog already
-supports Windows. Done when: it compiles under MinGW-w64 and the C suites
-pass there, with `tests/run.sh`, `ledger.sh` and `cli.sh` either running
-under a Windows shell or rewritten in C.
+An empty, truncated or malformed signature stops a run naming the file,
+but only when its turn comes, so in a large set a bad file is found late:
+with `-s` nothing done is lost, without it the run has to start over. What
+is wanted is a check that can be run on its own, over a whole directory,
+before any comparison: walk the directory, read each file's header, and
+apply the rule the loader and `sigstore.read_header` already apply, that
+the coarse and fine counts in the header have to be backed by the bytes in
+the file. About a millisecond a file.
 
-## 7. Tell a reframe with a blurred backdrop when one is a candidate (low)
+Done when: one command lists every file that is not a complete signature,
+with the reason, and exits 1 if there was any, 0 otherwise; a directory of
+good signatures with an empty, a truncated and a random file added names
+exactly those three; and the comparison can run the same check over its
+list before starting, so a bad file fails the run in seconds rather than
+hours.
+
+## 4. Tell a reframe with a blurred backdrop when one is a candidate (low)
 
 Low priority. Vertical reframes are not supported, decided on 2026-09-11:
 a 16:9 video made into 9:16, the picture across the middle over a blurred
@@ -141,7 +91,7 @@ candidates it fires on with that message, in the output, the JSON record and
 on the page; and a unit test pins a synthetic reframe and an upright video.
 If no measure separates them, README.md's limit stays the only warning.
 
-## 8. A second way to find bars, by their colour, for the user to choose (low)
+## 5. A second way to find bars, by their colour, for the user to choose (low)
 
 Low priority. The bar detector finds bars by what does not move, and that
 stays the default: it finds bars with lettering in them, where a test for
@@ -161,8 +111,57 @@ with the mode on, the second validation set's slide talk has its barred
 copies found; a unit test pins a still shot with black bars in both modes;
 and README.md's limit on slide talks names the option.
 
+## 6. Replace the vendored ffmpeg headers with the hundred lines they stand in for (low)
+
+`src/includes/` carries about twenty thousand lines of ffmpeg's internal
+headers, `avcodec.h`, `avfilter.h`, `internal.h`, `get_bits.h` and what
+they pull in, frozen at some old version and not a public API. What the
+code uses from them: the bit reader in the loader (`init_get_bits`,
+`get_bits`, `get_bits_long`, `skip_bits`), `av_popcount`, `FFMAX` and
+`FFABS`, `AV_INPUT_BUFFER_PADDING_SIZE`, and `AVRational`, two ints, in
+`StreamContext`; `SignatureContext.class` is always NULL and `put_bits.h`
+serves one commented-out line. Nothing else. Removing them changes no
+output: the point is a tree without unmaintained code it does not run,
+the Windows item losing its largest dependency (`config.h`, `thread.h`,
+`x86/` are what break under MinGW), the `framequeue.h` warnings gone, and
+no LGPL notices carried for code that is not used. Decided on 2026-09-12.
+
+The bit reader has to be written from the format, not copied from ffmpeg,
+or the licence point is lost. Every field the loader reads is 32 bits or
+narrower and unsigned; pts and counts can exceed 2^31, so the reader has to
+take 32-bit reads without sign trouble, and it has to refuse to read past
+the end of the buffer on its own rather than lean on padding.
+
+Done when: `src/includes/` holds only this repository's own headers plus
+the small reader and helpers, `SignatureContext.class` and the `put_bits`
+include are gone, the tree builds with the same flags, and the output is
+byte for byte what build 10 gives: `make test` and `make smoke` pass with
+the recorded copy untouched, a unit test reads a field above 2^31 and a
+buffer that ends mid-field, and one run over the signatures kept in
+`archive/` (243 `.bin`, 890 `.sig`) diffs clean against the same run on
+build 10.
+
+## 7. Native Windows build (lowest)
+
+Assessed on 2026-09-08 at commit `5ceaf19` by static analysis only and
+then shelved; commit `aaf7fa9` holds the full assessment. What blocks it,
+largest first: `<argp.h>` is GNU only and used shallowly, so argp-standalone
+or about 200 lines replace it; `#pragma omp atomic capture` is OpenMP 3.1,
+which MinGW-w64 handles and MSVC's `/openmp` does not; about 25 lines of
+POSIX calls (`dup`, `dup2`, `mkdir` with a mode, `__attribute__((optimize))`);
+and the libav headers, which are a dependency rather than a change. No
+inline assembly, no pthread, no signals, no directory walking; slog already
+supports Windows. Done when: it compiles under MinGW-w64 and the C suites
+pass there, with `tests/run.sh`, `ledger.sh` and `cli.sh` either running
+under a Windows shell or rewritten in C.
+
 ## Not planned
 
+- **Loading each signature once instead of once per comparison.** Measured
+  on 24 files, 276 pairs, with a timing build: reading the second signature
+  costs 1.2 ms a pair, a thousandth of the comparison, and the peak memory
+  is 10 MB; over a run with 600 inputs that is under a second a file. Not
+  worth a cache with a ceiling or batched loading. Decided on 2026-09-12.
 - **Tuning "contains my clip" for short sources.** On the second validation
   set and a length test on its sources, a source under about two minutes
   whose picture has a common light layout was reported inside unrelated

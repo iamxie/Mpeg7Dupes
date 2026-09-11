@@ -506,7 +506,7 @@ mpeg7dupes -l old.txt -n new.txt > new_dupes.csv
 | `-j`, `--jobs` | every core | Limit the run to this many cores |
 | `-v`, `--verbosity` | | Repeatable: `-v` progress, `-vv` per-pair detail, `-vvv` every fingerprint, which is enormous |
 | `--version` | | Print the build and exit. Every run also logs it |
-| `-m`, `--lookup_mode` | `longest` | `longest` ranks candidates by match length, the closer one winning a tie, and does not stop early. `full` stops once one walk has reached an end in each file, which a shared insert at the head of one file and the tail of the other satisfies, and which since build 7 a few frames at an extreme ratio can satisfy on a short clip; `fast` takes the first candidate that qualifies |
+| `-m`, `--lookup_mode` | `longest` | `longest`, the only mode since build 10: it ranks candidates by match length, the closer one winning a tie, and does not stop early. `full`, which stopped once one walk had reached an end in each file, and `fast`, which took the first candidate that qualified, were removed; benchmark.md keeps the comparison |
 | `-i`, `--thDi` | 0 | Minimum length in frames for a match to be reported. Shorter candidates are skipped, longer ones reported in full |
 | `-k`, `--minimum_score` | 1 | Rows scoring below this are not printed. The score counts votes, not frames; the old default of 49 hid genuine duplicates over 900 frames long |
 | `-x`, `--thXh` | 290 | Frame similarity threshold. Not above 290: from 310, black bars alone match unrelated videos to each other |

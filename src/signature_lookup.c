@@ -437,12 +437,10 @@ evaluate_parameters(
 	MatchingInfo *infos,
 	MatchingInfo bestmatch)
 {
-    /* The only thing that carries from one candidate to the next: the best
-     * mean distance seen so far, which is what the candidates are ranked on.
-     * Everything else describes one candidate's walk and is declared inside
-     * the loop, so the next candidate cannot inherit it. */
-    double minmeandist = bestmatch.meandist;
-
+    /* What carries from one candidate to the next is bestmatch: the length
+     * and mean distance of the best so far, which is what the candidates are
+     * ranked on. Everything else describes one candidate's walk and is
+     * declared inside the loop, so the next candidate cannot inherit it. */
     for (; infos != NULL; infos = infos->next) {
         FineSignature *a = infos->first;
         FineSignature *b = infos->second;
@@ -531,28 +529,21 @@ evaluate_parameters(
          * denominator used to be the other way round, which made this the
          * reciprocal, and taking the minimum of it picked the worst candidate.
          * The sentinel the caller seeds bestmatch with, 99999, only makes
-         * sense for a distance, which is what settles the intended direction.
-         * The comparison below only decides partial matches; a match that
-         * reaches both ends breaks out regardless, so whole matches never
-         * depended on it and their output does not change. */
+         * sense for a distance, which is what settles the intended direction. */
         meandist = (double) distsum / (double) goodfcount;
 
-        /* Reaching both ends wins outright in every mode but MODE_LONGEST,
-           where it is only as good as the frames behind it. */
-        /* Among candidates of the same length the closer one wins, so the
-           answer does not depend on the order the candidates came up in,
-           which the search does not promise. It used to be the first one
-           evaluated. */
-        int better = (sc->mode == MODE_LONGEST)
-            ? (bcount > bestmatch.matchframes
-               || (bcount == bestmatch.matchframes
-                   && meandist < bestmatch.meandist))
-            : (meandist < minmeandist
-               || status == (STATUS_END_REACHED | STATUS_BEGIN_REACHED)
-               || sc->mode == MODE_FAST);
+        /* Longer wins; among candidates of the same length the closer one
+           wins, so the answer does not depend on the order the candidates
+           came up in, which the search does not promise. Reaching both ends
+           is worth only the frames behind it: the full mode of builds up to 9
+           let it win outright and end the search, which settled on a shared
+           opening, or on a few frames at an extreme ratio, while a longer
+           match sat further down the list. */
+        int better = bcount > bestmatch.matchframes
+            || (bcount == bestmatch.matchframes
+                && meandist < bestmatch.meandist);
 
         if (better) {
-            minmeandist = meandist;
             /* bestcandidate in this iteration */
             bestmatch.meandist = meandist;
             bestmatch.matchframes = bcount;
@@ -571,19 +562,10 @@ evaluate_parameters(
             bestmatch.next = NULL;
         }
 
-        if (status == (STATUS_END_REACHED | STATUS_BEGIN_REACHED)) {
-            /* Only the candidate that was stored may claim it, which matters
-               in MODE_LONGEST where a shorter whole match can lose. */
-            if (better)
-                bestmatch.whole = 1;
-            if (sc->mode != MODE_LONGEST)
-                break;
-        }
-
-        /* first matching sequence is enough, finding the best one is not necessary */
-        if (sc->mode == MODE_FAST) {
-            break;
-        }
+        /* Only the candidate that was stored may claim it: a shorter whole
+           match can lose to a longer partial one. */
+        if (status == (STATUS_END_REACHED | STATUS_BEGIN_REACHED) && better)
+            bestmatch.whole = 1;
     }
     return bestmatch;
 }
@@ -646,11 +628,11 @@ lookup_signatures(
                     bestmatch.matchframes);
             sll_free(infos);
         }
-    /* MODE_LONGEST keeps going after a whole match, because a short one can
-       reach both ends on material the two clips merely share, and the match
-       worth reporting may be further down the list. */
+    /* Every candidate segment pair is looked at, whole match or not: a short
+       one can reach both ends on material the two clips merely share, and the
+       match worth reporting may be further down the list. Stopping at the
+       first whole match was what full did, and why it went in build 10. */
     } while (find_next_coarsecandidate(sc, second->coarsesiglist,\
-                &cs, &cs2, 0)
-             && (sc->mode == MODE_LONGEST || !bestmatch.whole));
+                &cs, &cs2, 0));
     return bestmatch;
 }
