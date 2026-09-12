@@ -22,9 +22,12 @@ checked against the counts in it. A failed run leaves nothing behind, and on
 to the final name, an interrupted ffmpeg left a truncated file that was not
 empty and so counted as a cache hit.
 
-The index row is written after the rename. An interruption between the two
-leaves a whole file without a row; the next run does not know that file's crop
-and makes it again, which costs one decode and serves nothing inconsistent.
+build() chooses a fresh generation filename, so it never replaces bytes named
+by an existing row. make() holds a per-key file lock through lookup, decode and
+publication, then switches the index in a short transaction. An interruption
+before the commit leaves at worst an unreferenced generation; an old row still
+names its old bytes. Old generations stay available to active scans. Source
+stat identity must remain unchanged from identification through publication.
 
 Bars: five answers, not two
 ---------------------------
@@ -44,6 +47,7 @@ changed which ffmpeg fingerprinted a video and not which one looked for bars.
 """
 
 import os
+import math
 import secrets
 import shutil
 import subprocess
@@ -51,6 +55,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import sigstore
+from tool_settings import ToolError, run_tool
 
 try:
     import detect_bars
@@ -93,13 +98,14 @@ class Signature:
 
 def resolve_tool(program: str) -> str | None:
     """Where this program is, or None: on PATH, or an explicit path."""
-    return shutil.which(program) or (program if Path(program).is_file() else None)
+    found = shutil.which(program)
+    return str(Path(found).resolve()) if found else None
 
 
 def probe_duration(ffprobe: str, path: Path) -> float:
     """The container's duration in seconds. Video information, not a frame
     count: the count comes from the signature once it exists."""
-    done = subprocess.run(
+    done = run_tool(
         [ffprobe, "-v", "error", "-show_entries", "format=duration",
          "-of", "csv=p=0", str(path)], capture_output=True, text=True)
     if done.returncode != 0:
@@ -108,7 +114,10 @@ def probe_duration(ffprobe: str, path: Path) -> float:
     if not text or text == "N/A":
         raise SignatureError("ffprobe reports no duration")
     try:
-        return float(text)
+        value = float(text)
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError
+        return value
     except ValueError:
         raise SignatureError(f"ffprobe reports a duration of {text!r}") from None
 
@@ -131,9 +140,13 @@ def decide_crop(path: Path, crop_bars: bool, ffmpeg: str,
             threshold=detect_bars.THRESHOLD,
             min_fraction=detect_bars.MIN_FRACTION,
             ffmpeg=ffmpeg, ffprobe=ffprobe)
+    except ToolError:
+        raise
     except Exception as exc:                      # noqa: BLE001
         return CropDecision("failed", detail=f"bar detection raised {exc}")
     status = found["status"]
+    if status == "failed":
+        return CropDecision("failed", detail=found.get("reason", "sampling failed"))
     if status == "unreadable":
         return CropDecision("failed", detail="ffprobe cannot read the file")
     if status in ("too short", "too static"):
@@ -149,7 +162,7 @@ def decide_crop(path: Path, crop_bars: bool, ffmpeg: str,
 
 
 def produce(src: Path, sig_dir: Path, filename: str, crop: str, fps: float,
-            ffmpeg: str, hwaccel: str = "") -> dict:
+            ffmpeg: str, hwaccel: str = "", *, before=None) -> dict:
     """Run ffmpeg and put a checked signature at sig_dir/filename.
 
     Returns the header read back from the file. Raises SignatureError, with
@@ -166,10 +179,10 @@ def produce(src: Path, sig_dir: Path, filename: str, crop: str, fps: float,
     # Only the filename goes in the filtergraph, with cwd locating the output,
     # because a path in there needs escaping that is easy to get wrong.
     cmd += ["-i", str(src.resolve()), "-map", "0:v:0", "-an",
-            "-vf", f"{chain}fps={fps},signature=filename={temp}",
+            "-vf", f"{chain}fps={sigstore.fps_tag(fps)},signature=filename={temp}",
             "-f", "null", "-"]
     try:
-        done = subprocess.run(cmd, cwd=sig_dir, capture_output=True, text=True)
+        done = run_tool(cmd, cwd=sig_dir, capture_output=True, text=True)
         if done.returncode != 0:
             raise SignatureError(
                 f"ffmpeg exited {done.returncode}: {done.stderr.strip()[:200]}")
@@ -180,6 +193,8 @@ def produce(src: Path, sig_dir: Path, filename: str, crop: str, fps: float,
             raise SignatureError(
                 f"ffmpeg exited 0 but wrote no usable signature "
                 f"({size} bytes)")
+        if before is not None:
+            sigstore.check_unchanged(src, before)
         os.replace(sig_dir / temp, sig_dir / filename)
         return header
     finally:
@@ -191,22 +206,27 @@ def produce(src: Path, sig_dir: Path, filename: str, crop: str, fps: float,
 
 def build(src: Path, sig_dir: Path, *, content_hash: str, fps: float,
           crop_bars: bool, detector: str, ffmpeg: str, ffprobe: str,
-          hwaccel: str = "") -> Built:
+          hwaccel: str = "", before=None) -> Built:
     """Everything that does not touch the index, so a caller may run it on a
     worker thread: probe, decide about bars, produce, read the count back."""
+    before = before or src.stat()
+    sigstore.check_unchanged(src, before)
     duration = probe_duration(ffprobe, src)
     decision = decide_crop(src, crop_bars, ffmpeg, ffprobe)
     if decision.state == "failed":
         raise SignatureError(f"bar detection failed, {decision.detail}")
     filename = sigstore.sig_filename(content_hash, fps, crop_bars, detector)
-    header = produce(src, sig_dir, filename, decision.crop, fps, ffmpeg, hwaccel)
+    # Never replace a file that an index row (or an active scan) may still
+    # reference. A failed index commit leaves at worst an unreferenced file.
+    filename = filename[:-4] + ".gen-" + secrets.token_hex(16) + ".sig"
+    header = produce(src, sig_dir, filename, decision.crop, fps, ffmpeg, hwaccel,
+                     before=before)
     return Built(duration, decision, header["frames"], filename)
 
 
 def record(con, content_hash: str, size: int, built: Built, *, fps: float,
            crop_bars: bool, detector: str, ffmpeg_version: str) -> None:
-    """The index writes for one produced signature. Caller's thread, caller's
-    commit."""
+    """Write the produced metadata inside the caller's short transaction."""
     sigstore.remember_content(con, content_hash, size, built.duration)
     sigstore.remember_signature(
         con, content_hash, fps, crop_bars, detector, built.crop.crop,
@@ -229,29 +249,46 @@ def lookup(con, sig_dir: Path, content_hash: str, *, fps: float,
 
 def make(src: Path, con, sig_dir: Path, *, fps: float, crop_bars: bool,
          detector: str, ffmpeg: str, ffprobe: str, ffmpeg_version: str,
-         hwaccel: str = "", overwrite: bool = False) -> Signature:
+         hwaccel: str = "", overwrite: bool = False, identified=None) -> Signature:
     """The whole flow for one video on the calling thread: identify it, reuse
     the store's signature if there is one, otherwise make and record one.
 
     Raises OSError (FileChanged included) when the video cannot be read or
     changes underfoot, and SignatureError when it cannot be fingerprinted.
     """
-    stat = None
-    content_hash = None if overwrite else sigstore.known_hash(con, src)
-    if content_hash is None:
-        content_hash, stat = sigstore.identify(src)
-        sigstore.remember_file(con, src, content_hash, stat)
-    if not overwrite:
-        found = lookup(con, sig_dir, content_hash, fps=fps,
-                       crop_bars=crop_bars, detector=detector)
-        if found:
-            return found
-    built = build(src, sig_dir, content_hash=content_hash, fps=fps,
-                  crop_bars=crop_bars, detector=detector, ffmpeg=ffmpeg,
-                  ffprobe=ffprobe, hwaccel=hwaccel)
-    size = stat.st_size if stat else src.stat().st_size
-    record(con, content_hash, size, built, fps=fps, crop_bars=crop_bars,
-           detector=detector, ffmpeg_version=ffmpeg_version)
-    return Signature(sig_dir / built.filename, built.filename, content_hash,
-                     built.duration, built.frames, built.crop.crop,
-                     built.crop.state, produced=True)
+    sigstore.fps_tag(fps)  # Reject unusable cache keys before touching the store.
+    if con.in_transaction:
+        raise ValueError("make requires a connection without an open transaction")
+    if identified is not None:
+        content_hash, stat = identified
+        sigstore.check_unchanged(src, stat)
+    else:
+        stat = src.stat()
+        content_hash = None if overwrite else sigstore.known_hash(con, src, stat)
+        if content_hash is None:
+            content_hash, stat = sigstore.identify(src)
+    with sigstore.signature_lock(con, content_hash, fps, crop_bars, detector):
+        sigstore.check_unchanged(src, stat)
+        if not overwrite:
+            found = lookup(con, sig_dir, content_hash, fps=fps,
+                           crop_bars=crop_bars, detector=detector)
+            if found:
+                sigstore.remember_file(con, src, content_hash, stat)
+                return found
+        built = build(src, sig_dir, content_hash=content_hash, fps=fps,
+                      crop_bars=crop_bars, detector=detector, ffmpeg=ffmpeg,
+                      ffprobe=ffprobe, hwaccel=hwaccel, before=stat)
+        try:
+            sigstore.check_unchanged(src, stat)
+            con.execute("BEGIN IMMEDIATE")
+            record(con, content_hash, stat.st_size, built, fps=fps,
+                   crop_bars=crop_bars, detector=detector, ffmpeg_version=ffmpeg_version)
+            sigstore.remember_file(con, src, content_hash, stat)
+            con.commit()
+        except BaseException:
+            con.rollback()
+            (sig_dir / built.filename).unlink(missing_ok=True)
+            raise
+        return Signature(sig_dir / built.filename, built.filename, content_hash,
+                         built.duration, built.frames, built.crop.crop,
+                         built.crop.state, produced=True)

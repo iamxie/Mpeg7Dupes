@@ -1,5 +1,11 @@
 # Benchmark
 
+The detector measurements below describe version 2 where indicated. Build 11
+uses detector version 3, with the same motion thresholds and corrected video
+stream selection, display height after rotation, and sampling-error handling.
+Its input contracts are covered by synthetic smoke tests; these historical
+measurements have not been relabelled as a new independent validation.
+
 What settings to use, the measurements behind them, and what those
 measurements do and do not tell you.
 

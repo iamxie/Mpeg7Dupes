@@ -189,3 +189,6 @@ else
     echo "$checks checks, $failures failed"
     exit 1
 fi
+
+# Input format and geometry contracts also require the real decoder.
+MPEG7DUPES="$bin" $runner "$here/video_io.py"

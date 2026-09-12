@@ -47,6 +47,10 @@ def fake_signature(frames: int = 500, segments: int = 12,
     bits = (SIG_HEADER_BITS + segments * SIG_COARSE_BITS + SIG_FLAG_BITS
             + frames * SIG_FINE_BITS)
     buf = bytearray((bits + 7) // 8)
+    _set_bits(buf, 0, 32, 1)
+    _set_bits(buf, 32, 1, 1)
+    _set_bits(buf, 177, 1, 1)
+    _set_bits(buf, 210, 32, max(0, frames - 1))
     _set_bits(buf, 129, 32, frames)
     _set_bits(buf, 161, 16, timebase_den)
     _set_bits(buf, 242, 32, segments)
@@ -114,7 +118,12 @@ MPEG7DUPES = r'''#!/bin/sh
 printf 'mpeg7dupes %s\n' "$*" >> "${FAKE_LOG:-/dev/null}"
 case "$*" in *--version*) echo "mpeg7dupes v0.1 b4 (fake)"; exit 0;; esac
 if [ "${FAKE_M7D_FAIL:-0}" = 1 ]; then echo "fake mpeg7dupes: failing on request" >&2; exit 1; fi
-src=$(cat source.txt)
+prev=""
+for arg in "$@"; do
+    case "$prev" in -l) candidates="$arg" ;; -n) sources="$arg" ;; esac
+    prev="$arg"
+done
+src=$(cat "$sources")
 echo "First signature,Second signature,score,matchframes,goodframes,totalframes,offset,framerateratio,meandist,time 1 [s],time 2 [s],begin 1 [s],end 1 [s],begin 2 [s],end 2 [s],whole"
 n=0
 while read -r cand; do
@@ -122,7 +131,7 @@ while read -r cand; do
     if [ $n -eq 1 ]; then f=${FAKE_M7D_FIRST:-60}; else f=${FAKE_M7D_REST:-10}; fi
     end=$(( f / 5 ))
     echo "$src,$cand,100,$f,$f,$f,-3,${FAKE_M7D_RATIO:-1.000000},5.00,1.00,7.00,0.00,$end.00,6.00,$(( end + 6 )).00,1"
-done < candidates.txt
+done < "$candidates"
 '''
 
 

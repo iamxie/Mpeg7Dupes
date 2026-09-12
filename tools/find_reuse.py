@@ -93,6 +93,11 @@ import argparse
 import csv
 import datetime
 import json
+import math
+import os
+import sqlite3
+import tempfile
+import io
 import shutil
 import subprocess
 import sys
@@ -113,10 +118,11 @@ except ImportError:
 # there is no sensible fallback for that. Without it this would have to
 # re-fingerprint everything on every run, silently.
 import sigstore  # noqa: E402
+from tool_settings import validate
 import sigmake  # noqa: E402
 from reuse_record import (  # noqa: E402
     SCHEMA, EXIT_COMPLETE, EXIT_INCOMPLETE, EXIT_UNUSABLE, PROCESSED, FAILED,
-    SKIPPED, MATCHED, CHECKED, LIMITS, as_clock, where_of)
+    SKIPPED, MATCHED, CHECKED, NOT_COMPARED, LIMITS, as_clock, where_of)
 
 DEFAULTS = {
     "fps": 5.0,
@@ -220,11 +226,14 @@ def load_settings(args: argparse.Namespace) -> dict:
     settings = dict(DEFAULTS)
 
     config = Path(args.config) if args.config else Path(__file__).with_name("find_reuse.toml")
+    if args.config and not config.is_file():
+        raise ValueError(f"no such config: {config}")
     if config.is_file():
         with config.open("rb") as fh:
             for key, value in tomllib.load(fh).items():
-                if key in settings:
-                    settings[key] = value
+                if key not in settings:
+                    raise ValueError(f"unknown setting in {config}: {key}")
+                settings[key] = value
 
     for key in settings:
         value = getattr(args, key, None)
@@ -233,18 +242,22 @@ def load_settings(args: argparse.Namespace) -> dict:
         # None for the same reason, so an absent one leaves the toml alone.
         if value is not None:
             settings[key] = value
+    validate(settings)
     return settings
+
+
+class ScanError(RuntimeError):
+    pass
 
 
 def die(message: str) -> None:
     """Nothing was compared: the arguments, the programs or the inputs are not
     usable. Distinct from a run that processed what it could."""
-    print(message, file=sys.stderr)
-    raise SystemExit(EXIT_UNUSABLE)
+    raise ScanError(message)
 
 
 def need(program: str, what: str) -> str:
-    found = shutil.which(program) or (program if Path(program).is_file() else None)
+    found = sigmake.resolve_tool(program)
     if not found:
         die(f"cannot find {what}: {program}")
     return found
@@ -271,6 +284,8 @@ def make_signature(src: Path, con, sig_dir: Path, settings: dict,
             crop_bars=settings["crop_bars"], detector=detector,
             ffmpeg=settings["ffmpeg"], ffprobe=settings["ffprobe"],
             ffmpeg_version=ffmpeg, overwrite=settings["overwrite"])
+    except sigmake.ToolError:
+        raise
     except (OSError, sigmake.SignatureError) as exc:
         # Recorded, not only printed: a file that could not be processed has
         # to be in the record, or the run looks complete when it is not.
@@ -348,18 +363,20 @@ def summarise(sources: list[dict], candidates: list[dict],
     """Counts of files by what happened to them, and whether the run was
     complete. Files, not signatures: every path the caller named counts."""
     count = lambda rows, *states: sum(1 for r in rows if r["status"] in states)
-    failed = count(sources, FAILED) + count(candidates, FAILED)
+    failed = count(sources, FAILED, NOT_COMPARED) + count(candidates, FAILED, NOT_COMPARED)
     return {
         "complete": failed == 0,
         "exit_status": EXIT_COMPLETE if failed == 0 else EXIT_INCOMPLETE,
         "sources_requested": len(sources),
         "sources_processed": count(sources, PROCESSED),
         "sources_failed": count(sources, FAILED),
+        "sources_not_compared": count(sources, NOT_COMPARED),
         "candidates_requested": len(candidates),
         "candidates_matched": count(candidates, MATCHED),
         "candidates_checked": count(candidates, CHECKED),
         "candidates_failed": count(candidates, FAILED),
         "candidates_skipped": count(candidates, SKIPPED),
+        "candidates_not_compared": count(candidates, NOT_COMPARED),
         "matches": len(hits),
     }
 
@@ -396,87 +413,106 @@ def build_record(settings: dict, sources: list[dict], candidates: list[dict],
     }
 
 
+class ComparisonError(RuntimeError):
+    def __init__(self, message, results, completed):
+        super().__init__(message)
+        self.results = results
+        self.completed = completed
+
+
+def parse_comparison(output, source, candidates):
+    """Only accept complete, finite rows for pairs in this invocation."""
+    reader = csv.DictReader(io.StringIO(output), strict=True)
+    required = {"First signature", "Second signature", "matchframes",
+                "framerateratio", "whole"} | {
+        f"{field} {side} [s]" for field in ("time", "begin", "end") for side in (1, 2)}
+    if not reader.fieldnames or not required.issubset(reader.fieldnames):
+        raise ValueError("missing comparison CSV header or columns")
+    results = {}
+    for row in reader:
+        if None in row or any(value is None for value in row.values()):
+            raise ValueError("incomplete comparison CSV row")
+        first, second = row["First signature"], row["Second signature"]
+        if first == source and second in candidates:
+            other, mine, theirs = second, "1", "2"
+        elif second == source and first in candidates:
+            other, mine, theirs = first, "2", "1"
+        else:
+            raise ValueError(f"unexpected comparison pair: {first!r}, {second!r}")
+        key = source, other
+        if key in results:
+            raise ValueError(f"duplicate comparison pair: {key!r}")
+        frames, ratio = float(row["matchframes"]), float(row["framerateratio"])
+        values = {name: float(row[f"{field} {side} [s]"]) for name, field, side in (
+            ("t_source", "time", mine), ("t_other", "time", theirs),
+            ("source_begin", "begin", mine), ("source_end", "end", mine),
+            ("other_begin", "begin", theirs), ("other_end", "end", theirs))}
+        if (not all(math.isfinite(v) for v in (frames, ratio, *values.values()))
+                or frames < 0 or not frames.is_integer() or ratio <= 0
+                or any(v < 0 for v in values.values())
+                or values["source_end"] < values["source_begin"]
+                or values["other_end"] < values["other_begin"]
+                or row["whole"] not in ("0", "1")):
+            raise ValueError("invalid comparison CSV numbers")
+        values.update(matchframes=frames,
+                      framerateratio=ratio if mine == "1" else round(1.0 / ratio, 6),
+                      whole=int(row["whole"]))
+        if not math.isfinite(values["framerateratio"]) or values["framerateratio"] <= 0:
+            raise ValueError("invalid comparison speed ratio")
+        results[key] = values
+    return results
+
+
 def compare(sig_dir: Path, source_bins: list[str], candidate_bins: list[str],
             settings: dict) -> dict[tuple[str, str], dict]:
-    """Compare every source against every candidate, and nothing else.
-
-    One run per source rather than one run with all of them in the incremental
-    list, because that list is also compared against itself: ten sources would
-    add forty-five comparisons between clips that are all yours. Splitting them
-    means those are never computed rather than computed and discarded, and it
-    costs nothing, because either way each run imports every candidate exactly
-    once. Candidates are never compared against each other in either
-    arrangement; only the incremental list is walked as the outer loop.
-    """
-    (sig_dir / "candidates.txt").write_text("\n".join(candidate_bins) + "\n")
-    results = {}
-
-    for i, source_bin in enumerate(source_bins, 1):
-        (sig_dir / "source.txt").write_text(source_bin + "\n")
-
-        # Every option spelled out, so the run means the same on a build with
-        # other defaults. -i 0, -k 1 and -b 0.1 so every candidate comes back
-        # and the threshold is applied here instead.
-        #
-        # -m longest, the only mode since build 10, spelled out so the run
-        # means the same on an older build. full, which build 10 removed,
-        # stopped searching as soon as one walk had reached an end in each
-        # file, which a shared advertisement satisfies when it sits at the head
-        # of one and the tail of the other; the search then ended on the
-        # advertisement and never found the real overlap. Over 4560 pairs at
-        # -x 290, full recovered 596 of 720 true duplicates with no false
-        # positives against longest's 717, and its worst true pair was reported
-        # at 0.1 per cent coverage. See benchmark.md.
-        cmd = [settings["mpeg7dupes"], "-f", "csv", "-m", "longest",
-               "-i", "0", "-k", "1", "-b", "0.1", "-x", str(settings["thxh"]),
-               "-l", "candidates.txt", "-n", "source.txt"]
-        if not settings["coarse_filter"]:
-            # A word distance tops out at 10000, so at 10001 no pair of
-            # segments is rejected: the filter is off.
-            cmd += ["-d", "10001"]
-        if settings["jobs"]:
-            cmd += ["-j", str(settings["jobs"])]
-
-        done = subprocess.run(cmd, cwd=sig_dir, capture_output=True, text=True)
-        if done.returncode != 0:
-            die(f"mpeg7dupes failed ({done.returncode}):\n{done.stderr.strip()[:600]}")
-
-        for row in csv.DictReader(done.stdout.splitlines()):
-            first = Path(row["First signature"]).name
-            source_first = first == source_bin
-            other = Path(row["Second signature"]).name if source_first else first
-            # Which column is the source and which is the candidate is not
-            # fixed: the outer loop is parallel and nothing promises an order.
-            mine, theirs = ("1", "2") if source_first else ("2", "1")
-            results[(source_bin, other)] = {
-                "matchframes": float(row["matchframes"]),
-                # The comparison's estimate of the speed of the second clip
-                # relative to the first, turned round when the source is the
-                # second so that the record always carries the candidate's
-                # speed relative to the source. Anything but 1.0 is reported
-                # with the ratio and what that means for the numbers.
-                "framerateratio": (float(row["framerateratio"]) if source_first
-                                   else round(1.0 / float(row["framerateratio"]), 6)),
-                "t_source": float(row[f"time {mine} [s]"]),
-                "t_other": float(row[f"time {theirs} [s]"]),
-                # Where the match really starts and ends in each file, as
-                # opposed to the seed above, which sits somewhere inside it.
-                "source_begin": float(row[f"begin {mine} [s]"]),
-                "source_end": float(row[f"end {mine} [s]"]),
-                "other_begin": float(row[f"begin {theirs} [s]"]),
-                "other_end": float(row[f"end {theirs} [s]"]),
-                "whole": int(row["whole"]),
-            }
-        if len(source_bins) > 1:
-            print(f"\r  comparing {i}/{len(source_bins)} sources", end="", flush=True)
+    """A private pair of lists for each scan; one invocation per source."""
+    results, completed = {}, []
+    with tempfile.TemporaryDirectory(prefix="mpeg7dupes-compare-") as directory:
+        candidates = Path(directory) / "candidates.txt"
+        source = Path(directory) / "source.txt"
+        candidates.write_text("\n".join(candidate_bins) + "\n")
+        for i, source_bin in enumerate(source_bins, 1):
+            source.write_text(source_bin + "\n")
+            cmd = [settings["mpeg7dupes"], "-f", "csv", "-m", "longest",
+                   "-i", "0", "-k", "1", "-b", "0.1", "-x", str(settings["thxh"]),
+                   "-l", str(candidates), "-n", str(source)]
+            if not settings["coarse_filter"]:
+                cmd += ["-d", "10001"]
+            if settings["jobs"]:
+                cmd += ["-j", str(settings["jobs"])]
+            try:
+                done = subprocess.run(cmd, cwd=sig_dir, capture_output=True, text=True)
+                if done.returncode != 0:
+                    raise ValueError(f"mpeg7dupes failed ({done.returncode}): "
+                                     + done.stderr.strip()[:600])
+                parsed = parse_comparison(done.stdout, source_bin, set(candidate_bins))
+            except (OSError, ValueError, csv.Error) as exc:
+                raise ComparisonError(str(exc), results, completed) from exc
+            results.update(parsed)
+            completed.append(source_bin)
+            if len(source_bins) > 1:
+                print(f"\r  comparing {i}/{len(source_bins)} sources", end="", flush=True)
     if len(source_bins) > 1:
         print()
     return results
 
 
-def main() -> int:
-    args = build_parser().parse_args()
-    settings = load_settings(args)
+def write_record(path, record):
+    """Leave the previous record intact if serialization or writing fails."""
+    payload = json.dumps(record, ensure_ascii=False, indent=1, allow_nan=False) + "\n"
+    path = Path(path)
+    fd, temp = tempfile.mkstemp(prefix="." + path.name + ".", suffix=".part", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp, path)
+    finally:
+        Path(temp).unlink(missing_ok=True)
+
+
+def scan(args, settings, sources, requested) -> int:
 
     source_root = Path(args.source)
     candidates_root = Path(args.candidates)
@@ -490,7 +526,6 @@ def main() -> int:
 
     sig_dir = Path(args.sig_dir) if args.sig_dir else (
         candidates_root if candidates_root.is_dir() else candidates_root.parent) / ".signatures"
-    sig_dir.mkdir(parents=True, exist_ok=True)
 
     settings["mpeg7dupes"] = need(settings["mpeg7dupes"], "mpeg7dupes")
     settings["ffmpeg"] = need(settings["ffmpeg"], "ffmpeg")
@@ -503,6 +538,7 @@ def main() -> int:
     # Only meaningful when cropping, and the store leaves it out of the key
     # otherwise, so an uncropped set is not retired by a retuned detector.
     detector = detect_bars.DETECTOR_VERSION if settings["crop_bars"] else ""
+    sig_dir.mkdir(parents=True, exist_ok=True)
     con = sigstore.open_db(Path(args.db) if args.db else sig_dir / INDEX_NAME)
     moved = sigstore.note_sig_dir(con, sig_dir)
     if moved:
@@ -513,7 +549,6 @@ def main() -> int:
         print("coarse filter off: every pair of segments is walked (-d 10001), "
               "about three times as slow")
 
-    sources = collect_videos(source_root, settings)
     if not sources:
         die(f"no videos under {source_root}")
     print(f"sources     {len(sources)}")
@@ -537,14 +572,11 @@ def main() -> int:
     print()
 
     already = {v.resolve() for v in sources}
-    requested = collect_videos(candidates_root, settings)
     # A candidate that is one of the sources is skipped, and says so in the
     # record: it would only ever match itself.
     skipped = [v for v in requested if v.resolve() in already]
     videos = [v for v in requested if v.resolve() not in already]
-    if not videos:
-        die(f"no videos under {candidates_root}"
-            + (" that are not sources" if skipped else ""))
+
 
     entries: dict[str, dict] = {}
     # Display the path as it was walked, not the resolved one. Identifying a
@@ -573,10 +605,20 @@ def main() -> int:
         print(f"  {duplicates} of them are byte-for-byte copies of another, so "
               f"{len(shown)} signatures cover all {signed}")
 
-    results = {}
+    results, completed = {}, []
+    error = None
     if source_entries and entries:
-        results = compare(sig_dir, sorted(source_entries), sorted(entries),
-                          settings)
+        try:
+            results = compare(sig_dir, sorted(source_entries), sorted(entries), settings)
+            completed = sorted(source_entries)
+        except ComparisonError as exc:
+            results, completed = exc.results, exc.completed
+            error = {"stage": "compare", "reason": str(exc)}
+    else:
+        error = {"stage": "prepare", "reason": "no usable sources and candidates to compare"}
+    comparison_complete = (error is None and not any(f["role"] == "source" for f in failures))
+    compared_paths = [p for key in completed for p in source_paths[key]]
+    con.close()
 
     hits, matched, overran = [], set(), 0
     best: dict[str, float] = {}
@@ -652,8 +694,8 @@ def main() -> int:
     for hit in hits:
         print(f"{hit['candidate_path']}   used {hit['source']}, {where_of(hit)}")
     misses = [path for name in entries if name not in matched
-              for path in shown[name]]
-    if args.show_misses:
+              for path in shown[name]] if comparison_complete else []
+    if args.show_misses and comparison_complete:
         for name in sorted(entries, key=lambda n: shown[n][0]):
             if name not in matched:
                 for path in shown[name]:
@@ -667,8 +709,8 @@ def main() -> int:
 
     # Files, not signatures: identical candidates share one signature but the
     # caller asked about each file, and each was answered for.
-    processed = signed
-    source_count = sum(len(paths) for paths in source_paths.values())
+    processed = signed if completed else 0
+    source_count = len(compared_paths)
     print(f"\nscanned {processed} candidate{'s' if processed != 1 else ''} "
           f"against {source_count} source{'s' if source_count != 1 else ''}, "
           f"{len(hits)} match{'es' if len(hits) != 1 else ''} over "
@@ -680,31 +722,78 @@ def main() -> int:
     if failures:
         print(f"{len(failures)} file{'s' if len(failures) != 1 else ''} could "
               f"not be processed, so this run is incomplete: exit status "
-              f"{EXIT_INCOMPLETE}. The lines above and the JSON say which.")
+              f"{EXIT_UNUSABLE if error else EXIT_INCOMPLETE}. The lines above and the JSON say which.")
 
     candidate_rows = video_list(entries, shown, settings["fps"])
     matched_paths = {path for name in matched for path in shown[name]}
     for row_ in candidate_rows:
-        row_["status"] = MATCHED if row_["path"] in matched_paths else CHECKED
+        row_["status"] = (MATCHED if row_["path"] in matched_paths else
+                          CHECKED if comparison_complete else NOT_COMPARED)
+        row_["comparison_complete"] = comparison_complete
+        if not comparison_complete:
+            row_["reason"] = "not compared against every requested source"
         row_["best_coverage_percent"] = round(best.get(
             next(n for n, ps in shown.items() if row_["path"] in ps), 0.0), 1)
     candidate_rows += failure_rows(failures, "candidate")
     candidate_rows += [{"name": v.name, "path": str(v), "status": SKIPPED,
                         "reason": "it is one of the sources"} for v in skipped]
+    represented = {r["path"] for r in candidate_rows}
+    candidate_rows += [{"name": v.name, "path": str(v), "status": NOT_COMPARED,
+                        "reason": "no usable source"} for v in requested if str(v) not in represented]
     source_rows = video_list(source_entries, source_paths, settings["fps"])
     source_rows += failure_rows(failures, "source")
     summary = summarise(source_rows, candidate_rows, hits)
 
+    if error:
+        summary.update(complete=False, exit_status=EXIT_UNUSABLE)
+        print(f"incomplete: {error['stage']}, {error['reason']}", file=sys.stderr)
+    for row in candidate_rows:
+        if row["status"] == NOT_COMPARED:
+            print(f"{row['path']}   not compared: {row['reason']}")
     if args.json:
         record = build_record(settings, source_rows, candidate_rows, hits,
                               misses, summary)
+        record["comparison"] = {"complete": summary["complete"], "sources_completed": compared_paths}
+        if error:
+            record["error"] = error
         try:
-            Path(args.json).write_text(
-                json.dumps(record, ensure_ascii=False, indent=1) + "\n")
+            write_record(args.json, record)
         except OSError as exc:
-            die(f"cannot write {args.json}: {exc}")
+            print(f"cannot write {args.json}: {exc}", file=sys.stderr)
+            return EXIT_UNUSABLE
         print(f"wrote {args.json}")
     return summary["exit_status"]
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    try:
+        settings = load_settings(args)
+    except (OSError, ValueError, tomllib.TOMLDecodeError) as exc:
+        print(f"invalid settings: {exc}", file=sys.stderr)
+        return EXIT_UNUSABLE
+    sources, candidates = [], []
+    try:
+        sources = collect_videos(Path(args.source), settings)
+        candidates = collect_videos(Path(args.candidates), settings)
+        return scan(args, settings, sources, candidates)
+    except (OSError, sqlite3.Error, ValueError, ScanError, SystemExit, sigmake.ToolError) as exc:
+        # Fatal preparation/storage errors still account for the inventory.
+        print(f"scan failed: {exc}", file=sys.stderr)
+        if args.json:
+            def inventory(videos):
+                return [{"name": v.name, "path": str(v), "status": NOT_COMPARED,
+                         "reason": "scan failed before comparison"}
+                        for v in videos]
+            record = build_record(settings, inventory(sources), inventory(candidates), [], [])
+            record["summary"].update(complete=False, exit_status=EXIT_UNUSABLE)
+            record["error"] = {"stage": "tools" if isinstance(exc, sigmake.ToolError) else "prepare", "reason": str(exc)}
+            record["comparison"] = {"complete": False, "sources_completed": []}
+            try:
+                write_record(args.json, record)
+            except OSError as write_error:
+                print(f"cannot write {args.json}: {write_error}", file=sys.stderr)
+        return EXIT_UNUSABLE
 
 
 if __name__ == "__main__":

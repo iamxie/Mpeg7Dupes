@@ -199,14 +199,30 @@ readable view now.
 
 ### Does their video contain my clip
 
-Every file asked about ends up in the output and in the JSON record with what
-happened to it: processed, or failed with the stage and the reason, or
-skipped because it is itself a source. The exit status says the same: 0 when
-every requested file was processed, whether or not anything matched; 1 when a
-file could not be processed and the rest was; 2 when nothing could be
-compared at all. `--show-misses` lists the candidates that were checked and
-cleared, which is the only way to tell one of those from a file that was
-never read.
+Every requested source and candidate stays in the JSON record, including
+files that failed and candidates skipped because they are source paths.
+A candidate is `matched`, `checked`, `failed`, `skipped`, or `not_compared`.
+`checked` means it was compared against every requested source and did not
+reach the threshold. If some sources fail, the record names the sources
+actually compared in `comparison.sources_completed`; a match can still be
+reported, but the candidate's `comparison_complete` is false. Unfinished
+comparisons never become misses.
+
+Exit 0 means the requested scan completed, whether or not it found a match.
+Exit 1 means some file processing failed but usable comparisons completed.
+Exit 2 means invalid settings or tools, no usable comparison, or a comparison
+failure. A later comparison failure preserves matches from earlier completed
+sources. Once the input inventory is collected, fatal errors also write a
+record when `--json` is supplied, so an earlier successful record is not left
+looking like this run. JSON is replaced atomically; a write failure leaves
+the previous file intact and reports exit 2. Records use `find_reuse/4`;
+`render_report.py` reads both version 3 and version 4 and shows unfinished work.
+
+Settings are checked before creating output: finite positive fps, coverage
+from 0 to 100, nonnegative integer jobs and valid C integer ranges. TOML
+booleans must be booleans; unknown keys, an unreadable or missing explicit
+`--config`, and malformed TOML are errors. Relative executable paths are
+resolved before any subprocess changes directory.
 
 The script divides by the source's own frame count, which is the question
 being asked, and reports only that the threshold was passed, never a
@@ -251,9 +267,34 @@ they are given the same `--db` and the same `--sig-dir` and use the same
 `fps` and bar setting, which are part of a signature's identity; the index
 names files relative to the directory, so the index alone finds nothing, and
 the directory alone cannot rebuild the index, since the crop applied and the
-duration live only there. A signature is written to a temporary name and
-renamed into place once its header checks out, so an interrupted run leaves no
-half-signature behind and a failed `--overwrite` keeps the old one.
+duration live only there. New signatures are validated at a temporary name,
+then published with a unique `.gen-<id>.sig` filename. The index switches to
+that file in a short transaction. A failed `--overwrite` keeps the old file
+and row; active scans can continue reading their original signature. Rebuilds
+can leave unreferenced generations in this cache; there is no automatic garbage
+collection. Keep the index with the directory and use the index to select
+signatures, rather than comparing every generation found by a glob.
+
+Concurrent producers on one machine use a file lock per cache key, recheck the
+cache after waiting, and do not hold a SQLite write transaction during ffmpeg.
+Initialization has its own brief lock. Lock files live beside the index in
+`.<index-name>.locks`; do not remove them while producers are running. This
+requires both current producers to share the same index and directory on a
+local filesystem; cross-machine/network-filesystem locking is not promised.
+Each scan owns its comparison lists. Source size, timestamps and file identity
+are checked from hashing through decoding; a change discards that attempt.
+The unchanged-file fast path still trusts size and mtime, so deliberately
+restoring both can evade it; use `--overwrite` to force reidentification.
+
+FPS names now preserve the exact float key. Unambiguous integer-fps cache
+entries remain usable; old rows that shared a rounded filename are invalidated
+as a group. Bar detector version 3 selects the first video track consistently
+with signature generation, accounts for display rotation, and treats a failed
+sampling window as a file failure. Its motion thresholds are unchanged, but
+its new identity deliberately rebuilds older cropped signatures once. Uncropped
+signatures keep their existing detector-independent identity. The cheap cache
+check validates supported header flags and byte counts; full data validation
+is performed by the C loader when comparing.
 
 ## Limits
 
@@ -462,17 +503,45 @@ mpeg7dupes -l list.txt -s dupes.ledger > part1.csv
 mpeg7dupes -l list.txt -s dupes.ledger >> part1.csv
 ```
 
-A pair is written to the output, flushed, and then recorded in the ledger. A
-kill between those two steps leaves the pair unrecorded, so the resume
-compares it again and the joined output carries that row twice; nothing is
-ever lost. That is the whole guarantee: a plain kill, a crash or a reboot
-cost at most a repeated pair, and a disk that loses writes it had
-acknowledged only repeats more of them. Rows for one pair are identical, so
-reduce on the two path columns:
+A pair is written to the output, flushed, and then recorded in the ledger.
+A process killed between those steps can leave completed output unrecorded;
+resuming can therefore repeat several pairs. With the same inputs and settings,
+and output correctly appended, a process interruption does not skip those
+pairs. An unfinished final ledger line is discarded before appending. One
+process at a time may use a ledger; a second process is refused.
+
+This is process-interruption recovery. Output and ledger are separate files
+and are not synchronously committed together: reboot, power loss or storage
+failure is outside this guarantee. Keep the output along with the ledger.
+Use a CSV parser to remove repeated headers and pairs, including paths with
+commas or quotes:
 
 ```sh
-awk -F, '!seen[$1 FS $2]++' part1.csv > dupes.csv
+python3 - <<'PYCSV'
+import csv
+with open("part1.csv", newline="") as src, open("dupes.csv", "w", newline="") as dst:
+    rows = csv.reader(src, strict=True)
+    header = next(rows)
+    writer = csv.writer(dst)
+    writer.writerow(header)
+    seen = set()
+    for row in rows:
+        if row == header:
+            continue
+        if len(row) != len(header):
+            raise ValueError("incomplete CSV row; inspect the interrupted output")
+        pair = tuple(sorted(row[:2]))
+        if pair not in seen:
+            writer.writerow(row)
+            seen.add(pair)
+PYCSV
 ```
+
+With `-s`, paths containing Tab or CR/LF, or starting with `#`, cannot be
+represented by the ledger and are refused before it is opened. Spaces,
+commas, quotes and Unicode names remain supported. A relative `#name.bin`
+can be spelled `./#name.bin` instead. Build 11 records floating-point settings
+at full precision; different `-b` values cannot silently share a run record.
 
 The ledger records what it was written for, in lines starting with `#`: the
 build, a digest of the binary, every setting that changes the output, and the

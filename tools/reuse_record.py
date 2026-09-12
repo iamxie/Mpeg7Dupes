@@ -27,7 +27,12 @@ describe one match two ways.
 #    and the speed ratio the comparison found, and an overrun keeps its raw
 #    numbers beside the reason instead of a clamped length. start_max_seconds,
 #    always null since 2, is gone. summary and limits were added.
-SCHEMA = "find_reuse/3"
+# 4: not_compared, atomic fatal-error records and explicit completed-source
+#    scope. A matched candidate can have comparison_complete=False; only fully
+#    checked candidates can enter misses. error marks fatal failures even when
+#    some earlier comparisons completed. The renderer still accepts schema 3.
+SCHEMA = "find_reuse/4"
+READABLE_SCHEMAS = ("find_reuse/3", SCHEMA)
 
 # Exit status of find_reuse.py. Fixed here and in --help, tested in
 # tests/unit/test_find_reuse.py.
@@ -42,6 +47,7 @@ FAILED = "failed"
 SKIPPED = "skipped"
 MATCHED = "matched"
 CHECKED = "checked"
+NOT_COMPARED = "not_compared"
 
 # What the record cannot say, stated in the record so a reader does not have
 # to know the tool to know the limits of its numbers.

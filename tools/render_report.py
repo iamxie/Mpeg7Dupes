@@ -49,7 +49,7 @@ from urllib.parse import quote
 # the terminal and the report must not describe one match two ways — and a
 # data module is all that takes, rather than loading the scanner.
 try:
-    from reuse_record import SCHEMA, FAILED, SKIPPED, as_clock, where_of
+    from reuse_record import SCHEMA, READABLE_SCHEMAS, FAILED, SKIPPED, NOT_COMPARED, as_clock, where_of
 except ImportError:
     sys.exit("render_report.py needs reuse_record.py beside it in tools/")
 
@@ -207,9 +207,16 @@ def unprocessed(record: dict) -> str:
             items.append(f'<li>{html.escape(video["path"])} ({role}): '
                          f'{html.escape(video["failure"]["stage"])}, '
                          f'<code>{html.escape(video["failure"]["reason"])}</code></li>')
+        elif video["status"] == NOT_COMPARED:
+            items.append(f'<li>{html.escape(video["path"])} ({role}): not compared, '
+                         f'{html.escape(video.get("reason", ""))}</li>')
         elif video["status"] == SKIPPED:
             items.append(f'<li>{html.escape(video["path"])} ({role}): skipped, '
                          f'{html.escape(video.get("reason", ""))}</li>')
+    compared = record.get("comparison", {}).get("sources_completed", [])
+    if items and compared and not record.get("comparison", {}).get("complete", True):
+        items.append('<li>Compared against these sources only: '
+                     + ', '.join(html.escape(path) for path in compared) + '</li>')
     if not items:
         return ""
     failed = sum(1 for v, _ in rows if v["status"] == FAILED)
@@ -233,10 +240,12 @@ def render(record: dict, missing: list[str]) -> str:
               f'against {candidates} candidate'
               f'{"s" if candidates != 1 else ""}')
     if summary and not summary.get("complete", True):
-        counts += (f', {summary["sources_failed"] + summary["candidates_failed"]}'
+        counts += (f', {summary["sources_failed"] + summary["candidates_failed"] + summary.get("sources_not_compared", 0) + summary.get("candidates_not_compared", 0)}'
                    f' not processed')
 
     warning = unprocessed(record)
+    if record.get("error"):
+        warning += '<div class="warn">' + html.escape(record["error"]["reason"]) + '</div>'
     if missing:
         listed = "".join(f"<li>{html.escape(p)}</li>" for p in missing[:12])
         more = (f"<li>and {len(missing) - 12} more</li>" if len(missing) > 12
@@ -327,7 +336,7 @@ def main() -> int:
 
     # Refuse an unknown schema rather than guess at it. Every field here is a
     # measurement, and a misread one is worse than a missing one.
-    if record.get("schema") != SCHEMA:
+    if record.get("schema") not in READABLE_SCHEMAS:
         sys.exit(f"{args.record} is schema {record.get('schema')!r}, "
                  f"this script reads {SCHEMA!r}")
 

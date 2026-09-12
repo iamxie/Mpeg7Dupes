@@ -1,5 +1,6 @@
 #include "signature_load.h"
 #include "printers.h"
+#include <limits.h>
 
 /* Sizes of the pieces of a binary signature in bits, as ffmpeg's signature
    filter writes them. The header runs up to and including NumOfSegments, the
@@ -24,8 +25,8 @@ void
 binary_import(StreamContext *sc, const char* filename)
 {
     FILE *f = NULL;
-    unsigned int rResult = 0, fileLength = 0, paddedLength = 0,\
-        numOfSegments = 0;
+    size_t fileLength = 0;
+    unsigned int numOfSegments = 0;
     uint8_t *buffer = NULL;
     GetBitContext bitContext = { 0 };
     char why[200];
@@ -35,10 +36,18 @@ binary_import(StreamContext *sc, const char* filename)
     Assert(sc);
 
     f = fopen(filename, "rb");
-    LoggedAssert(f, "Can't open %s", filename);
-
-    // We get to total file length
-    fileLength = getFileSize(filename);
+    if (!f)
+        rejectSignature(filename, "cannot open the file");
+    /* get_bits uses a signed int bit count. Refuse larger inputs before
+       allocation, and measure this same open file rather than reopening it. */
+    if (fseek(f, 0, SEEK_END) != 0)
+        rejectSignature(filename, "cannot seek the file");
+    long length = ftell(f);
+    if (length < 0 || fseek(f, 0, SEEK_SET) != 0)
+        rejectSignature(filename, "cannot determine the file size");
+    if ((unsigned long) length > (INT_MAX - AV_INPUT_BUFFER_PADDING_SIZE * 8) / 8)
+        rejectSignature(filename, "the file is too large for the bit reader");
+    fileLength = (size_t) length;
     if (fileLength == 0) {
         fclose(f);
         rejectSignature(filename, "the file is empty");
@@ -48,21 +57,19 @@ binary_import(StreamContext *sc, const char* filename)
         rejectSignature(filename, "the file is shorter than a signature header");
     }
 
-    // Cast to float is necessary to avoid int division
-    paddedLength = ceil(fileLength / (float) AV_INPUT_BUFFER_PADDING_SIZE)*\
-                   AV_INPUT_BUFFER_PADDING_SIZE + AV_INPUT_BUFFER_PADDING_SIZE;
-    buffer = (uint8_t*) calloc(paddedLength, sizeof(uint8_t));
+    buffer = calloc(fileLength + AV_INPUT_BUFFER_PADDING_SIZE, 1);
     LoggedAssert(buffer, "Could not allocate memory buffer");
 
     // Read entire file into memory
-    rResult = fread(buffer, sizeof(uint8_t), fileLength, f);
-    Assert(rResult == fileLength);
+    if (fread(buffer, 1, fileLength, f) != fileLength || ferror(f))
+        rejectSignature(filename, "cannot read the complete file");
     // Remove FILE pointer from memory once we're done
     fclose(f);
     f = NULL;
 
     // BE CAREFUL, THE LENGTH IS SPECIFIED IN BITS NOT BYTES
-    init_get_bits(&bitContext, buffer, 8*fileLength);
+    if (init_get_bits(&bitContext, buffer, (int) (8 * fileLength)) < 0)
+        rejectSignature(filename, "cannot initialize the bit reader");
     // libavcodec
 
     // Skip the following data:
@@ -70,7 +77,10 @@ binary_import(StreamContext *sc, const char* filename)
     // - SpatialLocationFlag: (1 bit) always the whole image
     // - PixelX_1: (16 bits) always 0
     // - PixelY_1: (16 bits) always 0
-    skip_bits(&bitContext, 32 + 1 + 16*2);
+    if (get_bits_long(&bitContext, 32) != 1 || get_bits(&bitContext, 1) != 1)
+        rejectSignature(filename, "only one explicit spatial region is supported");
+    if (get_bits(&bitContext, 16) != 0 || get_bits(&bitContext, 16) != 0)
+        rejectSignature(filename, "the spatial region must start at the origin");
 
 
 	// width - 1, and height - 1
@@ -82,7 +92,8 @@ binary_import(StreamContext *sc, const char* filename)
     ++sc->h;
 
     // StartFrameOfSpatialRegion, always 0
-    skip_bits(&bitContext, 32);
+    if (get_bits_long(&bitContext, 32) != 0)
+        rejectSignature(filename, "the spatial region must start at frame zero");
 
     // NumOfFrames
     // it's the number of fine signatures
@@ -100,10 +111,14 @@ binary_import(StreamContext *sc, const char* filename)
     // Skip the following data
     // - MediaTimeFlagOfSpatialRegion: (1 bit) always 1
     // - StartMediaTimeOfSpatialRegion: (32 bits) always 0
-    skip_bits(&bitContext, 1 + 32);
+    if (get_bits(&bitContext, 1) != 1)
+        rejectSignature(filename, "the spatial region must carry timestamps");
+    uint64_t firstCoarsePts = get_bits_long(&bitContext, 32);
 
     // EndMediaTimeOfSpatialRegion
     uint64_t lastCoarsePts = get_bits_long(&bitContext, 32);
+    if (firstCoarsePts > lastCoarsePts)
+        rejectSignature(filename, "the spatial region has reversed timestamps");
 
     // Coarse signatures
     // numOfSegments = number of coarse signatures
@@ -126,7 +141,7 @@ binary_import(StreamContext *sc, const char* filename)
         uint64_t needBytes = (needBits + 7) / 8;
         if (needBytes > fileLength) {
             snprintf(why, sizeof why, "it claims %u coarse and %u fine "
-                "signatures, which take %llu bytes, but the file has %u",
+                "signatures, which take %llu bytes, but the file has %zu",
                 numOfSegments, sc->lastindex,
                 (unsigned long long) needBytes, fileLength);
             rejectSignature(filename, why);
@@ -162,13 +177,20 @@ binary_import(StreamContext *sc, const char* filename)
         bCs->lastIndex = get_bits_long(&bitContext, 32);
 
         // MediaTimeFlagOfSegment 1 bit, always 1
-        skip_bits(&bitContext, 1);
+        if (get_bits(&bitContext, 1) != 1)
+            rejectSignature(filename, "a coarse signature has no timestamps");
 
         // Fine signature pts
         // StartMediaTimeOfSegment 32 bits
         bCs->firstPts = get_bits_long(&bitContext, 32);
         // EndMediaTimeOfSegment 32 bits
         bCs->lastPts = get_bits_long(&bitContext, 32);
+
+        if (bCs->firstIndex > bCs->lastIndex || bCs->lastIndex >= sc->lastindex)
+            rejectSignature(filename, "a coarse signature has invalid frame indices");
+        if (bCs->firstPts > bCs->lastPts || bCs->firstPts < firstCoarsePts
+                || bCs->lastPts > lastCoarsePts)
+            rejectSignature(filename, "a coarse signature has invalid timestamps");
 
 
 		// Bag of words
@@ -186,7 +208,8 @@ binary_import(StreamContext *sc, const char* filename)
 
     // Finesignatures
     // CompressionFlag, only 0 supported
-    skip_bits(&bitContext, 1);
+    if (get_bits(&bitContext, 1) != 0)
+        rejectSignature(filename, "compressed signatures are not supported");
 
 
     sc->finesiglist = (FineSignature*) calloc(sc->lastindex,\
@@ -201,10 +224,13 @@ binary_import(StreamContext *sc, const char* filename)
         FineSignature *fs = &sc->finesiglist[i];
 
         // MediaTimeFlagOfFrame always 1
-        skip_bits(&bitContext, 1);
+        if (get_bits(&bitContext, 1) != 1)
+            rejectSignature(filename, "a fine signature has no timestamp");
 
         // MediaTimeOfFrame (PTS)
         fs->pts = get_bits_long(&bitContext, 32);
+        if (fs->pts < firstCoarsePts || fs->pts > lastCoarsePts)
+            rejectSignature(filename, "a fine signature timestamp is outside the region");
 
         // FrameConfidence
         fs->confidence = get_bits(&bitContext, 8);
@@ -212,12 +238,16 @@ binary_import(StreamContext *sc, const char* filename)
         // words
         for (unsigned int l = 0; l < 5; l++) {
             fs->words[l] = get_bits(&bitContext, 8);
+            if (fs->words[l] > 242)
+                rejectSignature(filename, "a fine signature word is outside 0..242");
         }
 
         // Crashes for some signature, it's a memory adding problems
         // framesignature
         for (unsigned int l = 0; l < SIGELEM_SIZE/5; l++) {
             fs->framesig[l] = get_bits(&bitContext, 8);
+            if (fs->framesig[l] > 242)
+                rejectSignature(filename, "a packed ternary value is outside 0..242");
         }
     };
 
@@ -231,16 +261,8 @@ binary_import(StreamContext *sc, const char* filename)
         // Building fine signature list
         // First element prev should be NULL
         // Last element next should be NULL
-        if (i == 0) {
-            fs->next = &fs[1];
-            fs->prev = NULL;
-        } else if (i == sc->lastindex - 1) {
-            fs->next = NULL;
-            fs->prev = &fs[-1];
-        } else {
-            fs->next = &fs[1];
-            fs->prev = &fs[-1];
-        }
+        fs->next = i + 1 < sc->lastindex ? &fs[1] : NULL;
+        fs->prev = i > 0 ? &fs[-1] : NULL;
     }
 
     // Fine signature ranges DO overlap

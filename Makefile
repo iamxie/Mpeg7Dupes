@@ -106,7 +106,8 @@ compile: ${OBJS}
 # that would overwrite it. Under -j the build and the unit tests run side by
 # side and the suites wait for both.
 #
-# tools.sh needs no binary. It skips itself when there is no interpreter,
+# tools.sh uses MPEG7DUPES for loader/ledger integration tests and needs no
+# ffmpeg. It skips itself when there is no interpreter,
 # unless REQUIRE_PYTHON=1, which CI sets so that a runner without Python fails
 # instead of quietly testing less.
 .PHONY: test
@@ -118,9 +119,9 @@ test: link unit
 	@echo
 	@MPEG7DUPES=$(abspath $(EXE_PATH)) sh tests/cli.sh
 	@echo
-	@sh tests/tools.sh
+	@MPEG7DUPES=$(abspath $(EXE_PATH)) sh tests/tools.sh
 
-# The one test that runs the real ffmpeg: three synthetic clips through
+# Real ffmpeg tests: short/multitrack/rotated input contracts and three clips through
 # tools/find_reuse.py, twice, the second time without reading any video. Not
 # part of `test`, which is documented to need no ffmpeg; CI runs both.
 # REQUIRE_FFMPEG=1 turns the skip on a machine without ffmpeg into a failure.
@@ -136,9 +137,13 @@ UNIT_SRCS = $(shell find tests/unit -type f -name '*.c')
 UNIT_LIB_SRCS = $(filter-out ${SRC_DIR}/main.c ${SRC_DIR}/signature_lookup.c,${SRCS})
 
 .PHONY: unit
+UNIT_FLAGS = -O2
+ifdef DEBUG
+UNIT_FLAGS += $(CDEBUGFLAGS)
+endif
 unit: | $(BIN_DIR)
 	@echo Building unit tests
-	@$(CC) ${CFLAGS} -O2 -I tests/unit -I ${SRC_DIR} ${INCLUDES} \
+	@$(CC) ${CFLAGS} $(UNIT_FLAGS) -I tests/unit -I ${SRC_DIR} ${INCLUDES} \
 		-o ${BIN_DIR}/unitTests ${UNIT_SRCS} ${UNIT_LIB_SRCS} ${LIBS}
 	@${BIN_DIR}/unitTests
 

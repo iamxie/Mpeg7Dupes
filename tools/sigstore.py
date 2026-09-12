@@ -65,14 +65,14 @@ output, and the invalidation can be done deliberately.
 
 Content-addressed filenames
 ---------------------------
-    7d451ca5bc7e4f1a2b3c4d5e6f7a8b9c_5fps_crop-v1.sig
+    <content-hash>_5fps_crop-v3.gen-<generation-id>.sig
 
-The name carries the whole key, so the directory describes itself: **losing the
-database costs an index, not the signatures**, because the key can be read back
-off the filenames. The database is an accelerator, not the only record; what it
-holds that the names do not is each signature's crop and its frame count, so a
-rebuild has to read every file's header for the count and cannot recover the
-crop. There is no rebuild command yet.
+The name carries the input key and a unique generation. The index selects the
+current generation and holds the actual crop and duration, which cannot be
+recovered from the filename. Losing the index costs a re-decode: there is no
+rebuild command. Generations are immutable so an interrupted overwrite cannot
+pair new bytes with old metadata or alter a signature an active scan is using.
+Unreferenced generations are retained; no automatic garbage collection runs.
 
 Sharing a store between tools takes the same index *and* the same directory:
 rows name files relative to the directory, so an index pointed at another one
@@ -88,6 +88,9 @@ bits, the same width as XXH3-128.
 """
 
 import hashlib
+import math
+import fcntl
+from contextlib import contextmanager
 import os
 import sqlite3
 import subprocess
@@ -174,34 +177,62 @@ CREATE TABLE IF NOT EXISTS sigs (
 """
 
 
+@contextmanager
+def file_lock(path: Path):
+    """A stable local flock inode; removing lock files would split waiters."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a+b") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
 def open_db(path: Path) -> sqlite3.Connection:
+    """Open/create/migrate an index, serializing even the initial WAL switch.
+
+    PRAGMA journal_mode can fail immediately during concurrent cold starts,
+    despite busy_timeout. Initialization holds this local lock only briefly.
+    """
+    path = path.resolve()
+    with file_lock(path.parent / ("." + path.name + ".locks") / "initialize"):
+        return _open_db(path)
+
+
+def _open_db(path: Path) -> sqlite3.Connection:
     """Open the index, creating it and its directory when they are missing.
 
     A schema 1 index is migrated in place, keeping every signature; see
     migrate_1_to_2. Anything newer than this reader knows is refused.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    # The timeout is the whole of the concurrency story: a second process on
-    # the same index waits for the lock instead of failing with "database is
-    # locked". Two producers on one machine may share an index. Nothing here
-    # promises anything across machines or on a network share.
-    con = sqlite3.connect(path, timeout=30)
-    # WAL so a reader cannot block a writer. Writes here all happen on one
-    # thread; reads may come from another process entirely.
-    con.execute("PRAGMA journal_mode=WAL")
-    con.execute("PRAGMA synchronous=NORMAL")
-    con.executescript(SCHEMA)
-    found = con.execute("SELECT value FROM meta WHERE key='schema'").fetchone()
-    if found is None:
-        con.execute("INSERT INTO meta VALUES ('schema', ?)", (SCHEMA_VERSION,))
+    # SQLite serializes short index writes. Per-signature file locks handle
+    # the longer decode interval; no SQLite transaction spans a decoder run.
+    con = sqlite3.connect(path, timeout=30, isolation_level=None)
+    try:
+        con.execute("PRAGMA journal_mode=WAL")
+        con.execute("PRAGMA synchronous=NORMAL")
+        con.executescript("BEGIN IMMEDIATE;\n" + SCHEMA)
+        found = con.execute("SELECT value FROM meta WHERE key='schema'").fetchone()
+        if found is None:
+            con.execute("INSERT INTO meta VALUES ('schema', ?)", (SCHEMA_VERSION,))
+        elif found[0] == "1":
+            migrate_1_to_2(con, path)
+        elif found[0] != SCHEMA_VERSION:
+            raise SystemExit(
+                f"{path} is schema {found[0]}, this reads {SCHEMA_VERSION}. The "
+                f"columns mean something different, and reading it anyway gives "
+                f"answers that look right. Point --db somewhere else, or migrate.")
+        # Invalidate the whole ambiguous group before rebuilding any member;
+        # deleting only the rounded key would bless the other row's wrong file.
+        con.execute("DELETE FROM sigs WHERE filename IN "
+                    "(SELECT filename FROM sigs GROUP BY filename HAVING count(*) > 1)")
         con.commit()
-    elif found[0] == "1":
-        migrate_1_to_2(con, path)
-    elif found[0] != SCHEMA_VERSION:
-        raise SystemExit(
-            f"{path} is schema {found[0]}, this reads {SCHEMA_VERSION}. The "
-            f"columns mean something different, and reading it anyway gives "
-            f"answers that look right. Point --db somewhere else, or migrate.")
+    except BaseException:
+        con.rollback()
+        con.close()
+        raise
     return con
 
 
@@ -220,7 +251,7 @@ def migrate_1_to_2(con: sqlite3.Connection, path: Path) -> None:
     """
     paths = con.execute("SELECT count(*) FROM files").fetchone()[0]
     sigs = con.execute("SELECT count(*) FROM sigs").fetchone()[0]
-    con.executescript("""
+    migration = """
         ALTER TABLE files RENAME COLUMN mtime TO mtime_ns;
         UPDATE files SET mtime_ns = mtime_ns * 1000000000;
         ALTER TABLE sigs ADD COLUMN crop_state TEXT NOT NULL DEFAULT 'unknown';
@@ -229,8 +260,10 @@ def migrate_1_to_2(con: sqlite3.Connection, path: Path) -> None:
             WHEN crop_string != '' THEN 'detected'
             ELSE 'unknown' END;
         UPDATE meta SET value = '2' WHERE key = 'schema';
-    """)
-    con.commit()
+    """
+    for statement in migration.split(";"):
+        if statement.strip():
+            con.execute(statement)
     print(f"{path}: migrated the index from schema 1 to 2. All {sigs} "
           f"signatures are kept. The {paths} path records carried whole-second "
           f"mtimes, so a path whose file has a finer mtime is hashed again on "
@@ -253,6 +286,28 @@ class FileChanged(OSError):
     version of it that can be recorded."""
 
 
+def stat_identity(stat: os.stat_result) -> tuple:
+    """Detect replacement as well as ordinary rewrites during one operation."""
+    return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+
+
+def check_unchanged(path: Path, before: os.stat_result) -> None:
+    if stat_identity(before) != stat_identity(path.stat()):
+        raise FileChanged(f"{path} changed while it was being read or fingerprinted")
+
+
+@contextmanager
+def signature_lock(con, content_hash: str, fps: float, crop_bars: bool, detector: str):
+    """Serialize one cache key across local processes, without locking SQLite
+    during decoding. Lock files stay put so waiters always lock the same inode.
+    Both producers must use the same index and signature directory."""
+    database = Path(con.execute("PRAGMA database_list").fetchone()[2]).resolve()
+    directory = database.parent / ("." + database.name + ".locks")
+    key = sig_filename(content_hash, fps, crop_bars, detector)
+    with file_lock(directory / key):
+        yield
+
+
 def identify(path: Path) -> tuple[str, os.stat_result]:
     """Hash the file, and prove the bytes hashed are the ones the returned
     stat describes: the stat before and after must agree. remember_file takes
@@ -261,7 +316,7 @@ def identify(path: Path) -> tuple[str, os.stat_result]:
     before = path.stat()
     content_hash = hash_file(path)
     after = path.stat()
-    if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+    if stat_identity(before) != stat_identity(after):
         raise FileChanged(f"{path} changed while it was being read")
     return content_hash, before
 
@@ -285,13 +340,27 @@ def read_header(path: Path) -> dict | None:
 
     None covers a missing file, one shorter than a header, zero frames or
     segments, a zero time base, and a file shorter than its own counts need,
-    which is what an interrupted ffmpeg leaves behind. It reads one stat and
-    35 bytes, never the whole file, so a cache lookup can afford it.
+    which is what an interrupted ffmpeg leaves behind. It reads the header and compression flag from the same open file,
+    never the whole signature, so a cache lookup can afford it.
     """
     try:
-        size = path.stat().st_size
         with path.open("rb") as handle:
+            size = os.fstat(handle.fileno()).st_size
             head = handle.read(SIG_HEADER_BYTES)
+            if len(head) < SIG_HEADER_BYTES or size > (2**31 - 1 - 64 * 8) // 8:
+                return None
+            if (_bits(head, 0, 32) != 1 or _bits(head, 32, 1) != 1
+                    or _bits(head, 33, 32) != 0 or _bits(head, 97, 32) != 0
+                    or _bits(head, 177, 1) != 1
+                    or _bits(head, 178, 32) > _bits(head, 210, 32)):
+                return None
+            compression = SIG_HEADER_BITS + _bits(head, 242, 32) * SIG_COARSE_BITS
+            if compression >= size * 8:
+                return None
+            handle.seek(compression // 8)
+            flag = handle.read(1)
+            if not flag or _bits(flag, compression % 8, 1):
+                return None
     except OSError:
         return None
     if len(head) < SIG_HEADER_BYTES:
@@ -314,12 +383,15 @@ def fps_tag(fps: float) -> str:
     Normalised: --fps 5 and --fps 5.0 are the same thing and must not produce
     two names for one signature.
     """
-    return f"{fps:g}"
+    value = float(fps)
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError("fps must be finite and greater than zero")
+    return str(int(value)) if value.is_integer() else repr(value)
 
 
 def sig_filename(content_hash: str, fps: float, crop_bars: bool,
                  detector: str) -> str:
-    """The filename for one signature, carrying its whole key.
+    """The canonical cache-key name; publishers add a generation suffix.
 
     The detector is left out when nothing is cropped: that signature does not
     depend on it, and naming it there would retire perfectly good files every
@@ -401,6 +473,12 @@ def find_signature(con: sqlite3.Connection, sig_dir: Path, content_hash: str,
         "SELECT filename, crop_string, crop_state, frames FROM sigs "
         "WHERE hash=? AND fps=? AND crop_bars=? AND detector=?", key).fetchone()
     if not row:
+        return None
+    # Old :g names rounded distinct float keys onto one file. Neither row is
+    # trustworthy if a collision occurred, even the one whose fps was exact.
+    legacy = f"{content_hash}_{fps:g}fps_{'crop-v' + detector if crop_bars else 'nocrop'}.sig"
+    if ((row[0] == legacy and legacy != sig_filename(content_hash, fps, crop_bars, detector))
+            or con.execute("SELECT count(*) FROM sigs WHERE filename=?", (row[0],)).fetchone()[0] != 1):
         return None
     path = sig_dir / row[0]
     header = read_header(path)

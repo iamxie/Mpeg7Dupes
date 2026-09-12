@@ -4,7 +4,7 @@
     make test STATIC=1 # the same, building and testing the static binary
     make test DEBUG=1  # the same under AddressSanitizer
     make unit          # unit tests alone, builds its own binary
-    make smoke         # the one test that needs ffmpeg: video to result, twice
+    make smoke         # real ffmpeg: pipeline/cache plus input format and geometry
 
     MPEG7DUPES=/usr/local/bin/mpeg7dupes sh tests/run.sh
     MPEG7DUPES=/usr/local/bin/mpeg7dupes sh tests/ledger.sh
@@ -27,8 +27,8 @@ through `evaluate_parameters`, and the signature store's decisions about when
 a signature may be reused. They are where a number or a state goes wrong.
 
 **Fixture regression** (`run.sh`) compares six checked-in signatures and
-checks the result against named properties and two recorded copies of the
-whole output, one per search mode. It protects the comparison's results
+checks the result against named properties and the recorded
+`compare-longest.csv` output. It protects the comparison's results
 without depending on how the ffmpeg on the machine happens to encode.
 
 **Mock integration** (`cli.sh`, `ledger.sh`, `unit/test_sigmake.py`,
@@ -38,12 +38,14 @@ ffprobe and, for the Python tools, mpeg7dupes itself, so that the cache, the
 failure paths and the shape of the data crossing between modules are tested
 without decoding anything.
 
-**Real-tool integration** (`smoke.sh`) is deliberately small: three
+**Real-tool integration** (`smoke.sh`, `video_io.py`) is deliberately small: three
 synthetic clips through ffmpeg, the store and the binary via
 `tools/find_reuse.py`, twice. It is the only place the real pipeline runs,
 and what it catches is wiring: the signature format drifting, a filter
 argument ffmpeg no longer accepts, the cache failing to recognise its own
-files. It says nothing about accuracy beyond one easy case.
+files. Input checks also cover real single-frame, two-frame and short signatures, selection of the
+first video track and autorotated dimensions. They say nothing about accuracy
+beyond these small cases.
 
 Not every function has a mirror test. A behaviour change or a fixed defect
 gets a test that would have failed before it; the rest is covered by the
@@ -235,3 +237,19 @@ the ffmpeg version when you do.
 
 Accuracy on real footage is not covered by any test here; `benchmark.md` is
 the measurement, and it says what it does and does not tell you.
+
+## Build 11 regression coverage
+
+`test_loader.py` runs the selected binary on single/two-frame signatures,
+unsigned timestamps, unsupported flags, bad frame ranges and packed ternary
+values, and oversized input. `test_ledger_cli.py` covers ambiguous names,
+close floating-point settings, malformed/truncated records, locking and
+ordinary quoted/Unicode paths. `DEBUG=1` now instruments the C unit binary
+as well as the application with AddressSanitizer.
+
+`test_p1_cache.py`, `test_p1_scan.py` and `test_p1_concurrency.py` exercise
+source mutation, immutable publication, failed sampling, exact fps keys,
+legacy collisions, invalid settings/CSV, complete failure inventories and
+atomic JSON writes. Independent processes synchronize at barriers to test
+cold database initialization, sharing one signature and isolating scan lists.
+The root producer tests remain outside this public repository.

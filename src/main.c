@@ -23,7 +23,7 @@ describeRun(struct ledgerRun *run) {
     else
         snprintf(run->binary, sizeof(run->binary), "unknown");
     snprintf(run->params, sizeof(run->params),
-        "-d %d -c %d -x %d -i %d -b %g -k %d",
+        "-d %d -c %d -x %d -i %d -b %.17g -k %d",
         args.thD, args.thDc, args.thXh, args.thDi, args.thIt, args.minScore);
 }
 
@@ -183,6 +183,13 @@ processFiles(struct fileIndex *index, void (*printFunctionPointer)
         char why[2 * MAX_PATH_LENGTH + 1024];
         struct ledgerRun run;
 
+        for (int i = 0; i < index->maxIndexB; ++i) {
+            const char *path = &index->pathsMatrix[i * MAX_PATH_LENGTH];
+            if (!ledgerPathUsable(path)) {
+                slog_fatal(1, "Path cannot be represented in a ledger (Tab, CR/LF or leading #): %s", path);
+                exit(1);
+            }
+        }
         describeRun(&run);
         if (!ledgerOpen(&ledger, args.ledgerFile, (size_t) totalPairs, &run,
                 why, sizeof(why))) {

@@ -148,10 +148,12 @@ Usage
 
 import argparse
 import json
+import math
 import statistics
 import subprocess
 import sys
 from pathlib import Path
+from tool_settings import ToolError, run_tool
 
 # Columns kept per frame. See the note above on why this is neither 1 nor the
 # full width.
@@ -198,21 +200,36 @@ MIN_FRACTION = 0.02
 # costs a re-fingerprint; being wrong costs a wrong answer with no symptom.
 #
 # 2: rows whose content differs between windows are picture (DRIFT).
-DETECTOR_VERSION = "2"
+# 3: select v:0 and use its autorotated height; sampling failures are errors.
+# Thresholds and motion classification are unchanged.
+DETECTOR_VERSION = "3"
 
 
 def probe(path, ffprobe="ffprobe"):
     """Height and duration, or None when ffprobe cannot read the file."""
-    out = subprocess.run(
+    out = run_tool(
         [ffprobe, "-v", "error", "-select_streams", "v:0", "-show_entries",
-         "stream=height:format=duration", "-of", "json", str(path)],
+         "stream=width,height:stream_tags=rotate:stream_side_data=rotation:format=duration", "-of", "json", str(path)],
         capture_output=True, text=True)
     if out.returncode != 0:
         return None
     try:
         d = json.loads(out.stdout)
-        return int(d["streams"][0]["height"]), float(d["format"]["duration"])
-    except (KeyError, IndexError, ValueError):
+        stream = d["streams"][0]
+        height, duration = int(stream["height"]), float(d["format"]["duration"])
+        rotation = stream.get("tags", {}).get("rotate", 0)
+        for side in stream.get("side_data_list", []):
+            if "rotation" in side:
+                rotation = side["rotation"]
+        rotation = float(rotation)
+        if not math.isfinite(rotation) or rotation % 90:
+            return None
+        if rotation % 180:
+            height = int(stream["width"])
+        if height <= 0 or not math.isfinite(duration) or duration <= 0:
+            return None
+        return height, duration
+    except (KeyError, IndexError, ValueError, TypeError):
         return None
 
 
@@ -225,12 +242,18 @@ def movement(path, height, duration, points, per_point, ffmpeg="ffmpeg"):
         # Spread over the middle 80%, avoiding titles at the very start and
         # credits at the very end, both of which are often still.
         at = duration * (0.1 + 0.8 * i / max(1, points - 1))
-        raw = subprocess.run(
+        done = run_tool(
             [ffmpeg, "-v", "error", "-ss", f"{at:.2f}", "-i", str(path),
-             "-vf", f"scale={WIDTH}:ih:flags=area,format=gray",
+             "-map", "0:v:0", "-an", "-vf", f"scale={WIDTH}:ih:flags=area,format=gray",
              "-frames:v", str(per_point), "-f", "rawvideo", "-"],
-            capture_output=True).stdout
+            capture_output=True)
+        if done.returncode:
+            raise RuntimeError(f"ffmpeg sampling failed ({done.returncode}): "
+                               + done.stderr.decode(errors="replace").strip()[:200])
+        raw = done.stdout
         stride = height * WIDTH
+        if len(raw) % stride:
+            raise RuntimeError("ffmpeg sampling returned a partial raw frame")
         frames = [raw[j * stride:(j + 1) * stride]
                   for j in range(len(raw) // stride)]
         if len(frames) < MIN_WINDOW:
@@ -278,7 +301,12 @@ def analyse(path, points, per_point, threshold, min_fraction,
         return {"path": str(path), "status": "unreadable"}
     height, duration = info
 
-    profiles = movement(path, height, duration, points, per_point, ffmpeg)
+    try:
+        profiles = movement(path, height, duration, points, per_point, ffmpeg)
+    except ToolError:
+        raise
+    except (OSError, RuntimeError) as exc:
+        return {"path": str(path), "status": "failed", "reason": str(exc)}
     if profiles is None:
         return {"path": str(path), "status": "too short", "height": height}
     noise, drift = profiles
@@ -334,9 +362,12 @@ def main():
 
     worst = 0
     for path in args.videos:
-        r = analyse(path, args.points, args.frames,
-                    args.threshold, args.min_fraction,
-                    ffmpeg=args.ffmpeg, ffprobe=args.ffprobe)
+        try:
+            r = analyse(path, args.points, args.frames,
+                        args.threshold, args.min_fraction,
+                        ffmpeg=args.ffmpeg, ffprobe=args.ffprobe)
+        except ToolError as exc:
+            r = {"path": str(path), "status": "failed", "reason": str(exc)}
         name = Path(r["path"]).name
         crop = ""
         if r["status"] == "ok" and r["bar_fraction"]:
@@ -351,7 +382,10 @@ def main():
             worst = max(worst, 0 if r["status"] == "ok" else 2)
             continue
 
-        if r["status"] == "unreadable":
+        if r["status"] == "failed":
+            print(f"{name}: {r['reason']}")
+            worst = max(worst, 2)
+        elif r["status"] == "unreadable":
             print(f"{name}: cannot read")
             worst = max(worst, 2)
         elif r["status"] == "too short":

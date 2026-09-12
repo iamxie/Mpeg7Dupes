@@ -3,6 +3,8 @@
 #include <errno.h>
 #include <sys/stat.h>
 #include <inttypes.h>
+#include <sys/file.h>
+#include <unistd.h>
 
 #define LEDGER_SEPARATOR '\t'
 #define FNV_OFFSET 1469598103934665603ULL
@@ -140,50 +142,69 @@ ledgerField(const char *field, const char *key, char *out, size_t size) {
         snprintf(out, size, "%s", field + length + 1);
 }
 
-/* One line of the ledger's record. Anything it does not understand is a
- * comment. */
-static void
+int
+ledgerPathUsable(const char *path) {
+    return path[0] && path[0] != '#' && !strpbrk(path, "\t\r\n");
+}
+
+/* Unknown # comments remain compatible; known records must be complete. */
+static int
 ledgerReadRecord(struct ledger *ledger, char *line) {
     char *fields[8] = {0};
     int count = 0;
-
     for (char *p = strtok(line, "\t"); p && count < 8; p = strtok(NULL, "\t"))
         fields[count++] = p;
     if (count == 0)
-        return;
+        return 1;
     if (strcmp(fields[0], "#run") == 0) {
-        for (int i = 1; i < count; ++i) {
-            ledgerField(fields[i], "version", ledger->run.version,
-                sizeof(ledger->run.version));
-            ledgerField(fields[i], "binary", ledger->run.binary,
-                sizeof(ledger->run.binary));
-            ledgerField(fields[i], "params", ledger->run.params,
-                sizeof(ledger->run.params));
-        }
+        struct ledgerRun parsed = {0};
+        if (count != 4)
+            return 0;
+        ledgerField(fields[1], "version", parsed.version, sizeof(parsed.version));
+        ledgerField(fields[2], "binary", parsed.binary, sizeof(parsed.binary));
+        ledgerField(fields[3], "params", parsed.params, sizeof(parsed.params));
+        if (!parsed.version[0] || !parsed.binary[0] || !parsed.params[0]
+                || strlen(fields[1]) >= sizeof(parsed.version) + 8
+                || strlen(fields[2]) >= sizeof(parsed.binary) + 7
+                || strlen(fields[3]) >= sizeof(parsed.params) + 7)
+            return 0;
+        if (ledger->hasRun && (strcmp(parsed.version, ledger->run.version)
+                || strcmp(parsed.binary, ledger->run.binary)
+                || strcmp(parsed.params, ledger->run.params)))
+            return 0;
+        ledger->run = parsed;
         ledger->hasRun = 1;
-    } else if (strcmp(fields[0], "#input") == 0 && count >= 4) {
-        long size = strtol(fields[2], NULL, 10);
-        uint64_t contentHash = strtoull(fields[3], NULL, 16);
-        ledgerAddInput(ledger, ledgerHashString(fields[1]), size, contentHash);
+    } else if (strcmp(fields[0], "#input") == 0) {
+        char *end;
+        if (count != 4 || !ledgerPathUsable(fields[1]))
+            return 0;
+        errno = 0;
+        long size = strtol(fields[2], &end, 10);
+        if (errno || *end || end == fields[2] || size < 0)
+            return 0;
+        errno = 0;
+        uint64_t digest = strtoull(fields[3], &end, 16);
+        if (errno || *end || strlen(fields[3]) != 16 || !digest)
+            return 0;
+        ledgerAddInput(ledger, ledgerHashString(fields[1]), size, digest);
     }
+    return 1;
 }
 
-/* Splits "pathA\tpathB" in place and inserts it. Lines without a separator are
- * skipped rather than treated as fatal, so a truncated last line left by a
- * killed run costs one recomputed pair instead of refusing to start. */
-static void
+static int
 ledgerInsertLine(struct ledger *ledger, char *line) {
     char *tab = strchr(line, LEDGER_SEPARATOR);
     const char *low = NULL, *high = NULL;
-
+    if (!line[0])
+        return 1;
     if (!tab)
-        return;
+        return 0;
     *tab = '\0';
-    /* Ordered on the way in as well as on the way out. Lines this program
-       wrote are already in order, but a hand-edited one need not be, and a
-       pair listed the other way round has to count as the same pair. */
+    if (!ledgerPathUsable(line) || !ledgerPathUsable(tab + 1))
+        return 0;
     ledgerOrder(line, tab + 1, &low, &high);
     ledgerInsert(ledger, ledgerHash(low, high));
+    return 1;
 }
 
 /* Creates the directories leading up to the ledger, so -s can name a place
@@ -242,31 +263,66 @@ ledgerOpen(struct ledger *ledger, const char *path, size_t extra,
     while (ledger->capacity < 2 * (extra + 1))
         ledger->capacity *= 2;
 
-    reader = fopen(path, "r");
-    if (reader) {
-        while (fgets(line, sizeof(line), reader)) {
-            existing++;
-            /* Grow before loading, for the same reason: no reallocation once
-               the comparison threads are running. */
-            if (2 * (existing + extra) > ledger->capacity)
-                ledger->capacity *= 2;
-        }
-        rewind(reader);
+    if (!ledgerMakeParents(path) || !(reader = fopen(path, "a+"))) {
+        snprintf(why, whySize, "Cannot open ledger %s: %s", path, strerror(errno));
+        return 0;
     }
-
+    if (flock(fileno(reader), LOCK_EX | LOCK_NB) != 0) {
+        snprintf(why, whySize, "Ledger %s is locked by another process: %s", path, strerror(errno));
+        fclose(reader);
+        return 0;
+    }
+    ledger->file = reader; /* Keep this descriptor and its lock until close. */
+    rewind(reader);
+    long completeEnd = 0;
+    while (fgets(line, sizeof(line), reader)) {
+        if (!strchr(line, '\n')) {
+            int more = fgetc(reader);
+            if (more != EOF || ferror(reader)) {
+                snprintf(why, whySize, "Malformed or unreadable ledger %s: record too long", path);
+                ledgerClose(ledger);
+                return 0;
+            }
+            /* A killed append is never completion, even if both paths look
+               whole. Remove it before appending so lines cannot fuse. */
+            clearerr(reader);
+            if (ftruncate(fileno(reader), completeEnd) != 0) {
+                snprintf(why, whySize, "Cannot remove unfinished ledger tail %s: %s", path, strerror(errno));
+                ledgerClose(ledger);
+                return 0;
+            }
+            slog_warn(3, "Ledger %s: discarded unfinished final record", path);
+            break;
+        }
+        completeEnd = ftell(reader);
+        existing++;
+        if (2 * (existing + extra) > ledger->capacity)
+            ledger->capacity *= 2;
+    }
+    if (ferror(reader)) {
+        snprintf(why, whySize, "Cannot read ledger %s: %s", path, strerror(errno));
+        ledgerClose(ledger);
+        return 0;
+    }
+    rewind(reader);
     ledger->slots = (uint64_t*) calloc(ledger->capacity, sizeof(uint64_t));
     LoggedAssert(ledger->slots, "Could not allocate the ledger table");
     ledger->count = 0;
-
-    if (reader) {
-        while (fgets(line, sizeof(line), reader)) {
-            line[strcspn(line, "\r\n")] = '\0';
-            if (line[0] == '#')
-                ledgerReadRecord(ledger, line);
-            else
-                ledgerInsertLine(ledger, line);
+    while (fgets(line, sizeof(line), reader)) {
+        size_t length = strlen(line);
+        if (length && line[length - 1] == '\n') line[--length] = '\0';
+        if (length && line[length - 1] == '\r') line[--length] = '\0';
+        if (strchr(line, '\r') || !(line[0] == '#'
+                ? ledgerReadRecord(ledger, line) : ledgerInsertLine(ledger, line))) {
+            snprintf(why, whySize, "Malformed record in ledger %s", path);
+            ledgerClose(ledger);
+            return 0;
         }
-        fclose(reader);
+    }
+    if (fseek(reader, 0, SEEK_END) != 0) {
+        snprintf(why, whySize, "Cannot seek ledger %s", path);
+        ledgerClose(ledger);
+        return 0;
     }
 
     if (ledger->hasRun) {
@@ -295,23 +351,12 @@ ledgerOpen(struct ledger *ledger, const char *path, size_t extra,
                 path, ledger->run.version, ledger->run.binary,
                 ledger->run.params, run->version, run->binary, run->params,
                 ledger->count, what, what);
-            free(ledger->slots);
-            ledger->slots = NULL;
-            free(ledger->inputs);
-            ledger->inputs = NULL;
+            ledgerClose(ledger);
             return 0;
         }
     } else {
         ledger->run = *run;
     }
-
-    LoggedAssert(ledgerMakeParents(path),
-        "Cannot create the directory for the ledger: %s", path);
-    ledger->file = fopen(path, "a");
-    LoggedAssert(ledger->file, "Cannot open ledger for appending: %s", path);
-    /* Line buffered, so a pair reaches the file as soon as it is recorded and
-       survives a kill. */
-    setvbuf(ledger->file, NULL, _IOLBF, 0);
 
     if (!ledger->hasRun) {
         if (ledger->count)
@@ -322,6 +367,7 @@ ledgerOpen(struct ledger *ledger, const char *path, size_t extra,
         if (!ledgerWriteRun(ledger, existing == 0)) {
             snprintf(why, whySize, "Cannot write to the ledger %s: %s", path,
                 strerror(errno));
+            ledgerClose(ledger);
             return 0;
         }
         ledger->hasRun = 1;
@@ -341,6 +387,10 @@ ledgerNoteInput(struct ledger *ledger, const char *path, char *why,
     if (!ledger->file)
         return 1;
 
+    if (!ledgerPathUsable(path)) {
+        snprintf(why, whySize, "Path cannot be represented in a ledger: %s", path);
+        return 0;
+    }
     pathHash = ledgerHashString(path);
     contentHash = ledgerHashFile(path, &size);
     if (!contentHash) {
@@ -379,6 +429,8 @@ ledgerHas(struct ledger *ledger, const char *first, const char *second) {
     if (!ledger->file)
         return 0;
 
+    if (!ledgerPathUsable(first) || !ledgerPathUsable(second))
+        return 0;
     ledgerOrder(first, second, &low, &high);
     #pragma omp critical (ledger)
     {
@@ -395,6 +447,8 @@ ledgerRecord(struct ledger *ledger, const char *first, const char *second) {
     if (!ledger->file)
         return 1;
 
+    if (!ledgerPathUsable(first) || !ledgerPathUsable(second))
+        return 0;
     ledgerOrder(first, second, &low, &high);
     #pragma omp critical (ledger)
     {

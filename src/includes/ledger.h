@@ -56,7 +56,11 @@ struct ledger {
     size_t inputCount, inputCapacity;
 };
 
-/* Reads an existing ledger and opens it for appending. Missing files are
+/* Tab, CR/LF and a leading # cannot be encoded by this ledger format. */
+int ledgerPathUsable(const char *path);
+
+/* Locks an existing ledger exclusively, discards an unfinished final line,
+ * validates complete records, and keeps the descriptor locked for appending. Missing files are
  * created, so the first run and a resume take the same command line. `extra`
  * is how many pairs this run may add, used to size the table up front so it
  * never has to grow while threads are running. `run` describes this run; a

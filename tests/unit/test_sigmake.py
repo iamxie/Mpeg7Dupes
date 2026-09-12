@@ -111,7 +111,7 @@ class Produce(Base):
     def test_the_crop_rides_in_front_of_the_fps_filter(self):
         sigmake.produce(self.a_video(), self.sig_dir, "out.sig",
                         "crop=iw:180:0:40", 5.0, self.ffmpeg)
-        self.assertIn("-vf crop=iw:180:0:40,fps=5.0,signature=filename=",
+        self.assertIn("-vf crop=iw:180:0:40,fps=5,signature=filename=",
                       self.calls("ffmpeg")[0])
 
     def test_hwaccel_is_passed_when_asked_for(self):
@@ -288,8 +288,9 @@ class Make(Base):
         video = self.a_video()
         first = self.make(video)
         first.path.write_bytes(first.path.read_bytes()[:100])
-        self.assertTrue(self.make(video).produced)
-        self.assertEqual(first.path.read_bytes(), self.template.read_bytes())
+        again = self.make(video)
+        self.assertTrue(again.produced)
+        self.assertEqual(again.path.read_bytes(), self.template.read_bytes())
 
     def test_a_file_without_its_row_is_made_again(self):
         """The rename lands before the row; an interruption between the two
@@ -314,7 +315,7 @@ class Make(Base):
         finally:
             sigmake.detect_bars = detect_bars
         self.assertEqual((made.crop_state, made.crop), ("uncertain", ""))
-        self.assertIn("-vf fps=5.0,", self.calls("ffmpeg")[0])
+        self.assertIn("-vf fps=5,", self.calls("ffmpeg")[0])
         self.assertEqual(self.con.execute("SELECT crop_state FROM sigs").fetchone(),
                          ("uncertain",))
 
