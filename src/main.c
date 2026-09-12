@@ -162,6 +162,78 @@ main(int argc, char **argv) {
 }
 
 
+typedef void (*PairPrinter)(MatchingInfo *, StreamContext *, char *, char *, int, int, int);
+
+struct pairProgress {
+    long done, total, step;
+    time_t start;
+};
+
+/* Both scheduling paths use exactly this completion protocol. The source
+   lists are shared read-only; lookup's LUT and candidates belong to this pair. */
+static void
+comparePair(struct fileIndex *index, int i, int j, const StreamContext *source,
+            struct pairProgress *progress, PairPrinter printFunctionPointer) {
+    char *file1 = &index->pathsMatrix[i * MAX_PATH_LENGTH];
+    struct fileIndex tmpIndex = {
+        .indexA = i,
+        .indexB = j,
+        .maxIndexA = index->maxIndexA,
+        .maxIndexB = index->maxIndexB,
+        .pathsMatrix = index->pathsMatrix
+    };
+    StreamContext scontexts[NUM_OF_INPUTS] = {0};
+    MatchingInfo result = {0};
+    char *file2 = &tmpIndex.pathsMatrix[tmpIndex.indexB*MAX_PATH_LENGTH];
+
+    if (ledgerHas(&ledger, file1, file2))
+        return;
+
+    slog_debug(6, "Worker %d: pair %d,%d", omp_get_thread_num(), i, j);
+    /* Only the context shell is copied; the loaded signature lists are read-only. */
+    scontexts[0] = *source;
+    binary_import(&scontexts[1], file2);
+
+    SignatureContext sigContext = {
+        .class = NULL,
+        .mode = args.mode,
+        .nb_inputs = NUM_OF_INPUTS,
+        .filename = "",
+        .thworddist = args.thD,
+        .thcomposdist = args.thDc,
+        .thl1 = args.thXh,
+        .thdi = args.thDi,
+        .thit = args.thIt,
+        .streamcontexts = scontexts
+    };
+
+    result = processSignaturePair(&scontexts[0], &scontexts[1],
+        sigContext);
+    printResult(&tmpIndex, &result, &sigContext, args.minScore,
+        printFunctionPointer);
+
+    signature_unload(&scontexts[1]);
+    if (fflush(resultStream) != 0 || ferror(resultStream))
+        stopOnWriteError("the results", NULL);
+    /* After the result is flushed, so a pair is only ever marked done
+       once its output is on its way out. */
+    if (!ledgerRecord(&ledger, file1, file2))
+        stopOnWriteError("the ledger", args.ledgerFile);
+
+    long done;
+    #pragma omp atomic capture
+    done = ++progress->done;
+    if (done % progress->step == 0 || done == progress->total) {
+        double elapsed = difftime(time(NULL), progress->start);
+        double rate = elapsed > 0.0 ? (double) done / elapsed : 0.0;
+        slog_live(5,
+            "Progress %ld/%ld pairs (%.1f%%), %.0f pairs/s, ETA %.0f min",
+            done, progress->total,
+            100.0 * (double) done / (double) progress->total, rate,
+            rate > 0.0 ? ((double) (progress->total - done)) / rate / 60.0 : 0.0);
+    }
+}
+
 void
 processFiles(struct fileIndex *index, void (*printFunctionPointer)
     (MatchingInfo *info, StreamContext* sc, char *file1, char *file2, \
@@ -221,7 +293,6 @@ processFiles(struct fileIndex *index, void (*printFunctionPointer)
                 skippedPairs);
     }
 
-    long donePairs = 0;
     /* Report every 1%, but no more often than every 50 pairs. */
     long progressStep = totalPairs / 100;
     if (progressStep < 50)
@@ -234,78 +305,29 @@ processFiles(struct fileIndex *index, void (*printFunctionPointer)
     else
         slog_live(5, "Comparing %ld file pairs", totalPairs);
 
-    /* Parallelise the outer loop, not the inner one.
-       Parallelising the inner loop forked and joined once per outer iteration,
-       and its implicit barrier made finished threads wait for the slowest one,
-       so utilisation collapsed at the end of every wave. Driving the outer loop
-       instead forks once for the whole run: a thread that finishes one i picks
-       up the next immediately, with no synchronisation in between. */
-    #pragma omp parallel for schedule(dynamic)
-    for (int i = index->indexA + 1; i < index->maxIndexA; ++i) {
-        StreamContext scontextsBase[NUM_OF_INPUTS] = { 0 };
-        char *file1 = &index->pathsMatrix[i*MAX_PATH_LENGTH];
-        binary_import(&scontextsBase[0], file1);
-
-        for (int j = i + 1; j < index->maxIndexB; ++j) {
-
-            struct fileIndex tmpIndex = {
-                .indexA = i,
-                .indexB = j,
-                .maxIndexA = index->maxIndexA,
-                .maxIndexB = index->maxIndexB,
-                .pathsMatrix = index->pathsMatrix
-            };
-            StreamContext scontexts[NUM_OF_INPUTS];
-            MatchingInfo result = {0};
-            char *file2 = &tmpIndex.pathsMatrix[tmpIndex.indexB*MAX_PATH_LENGTH];
-
-            if (ledgerHas(&ledger, file1, file2))
-                continue;
-
-            scontexts[0] = scontextsBase[0];
-            binary_import(&scontexts[1], file2);
-
-            SignatureContext sigContext = {
-                .class = NULL,
-                .mode = args.mode,
-                .nb_inputs = NUM_OF_INPUTS,
-                .filename = "",
-                .thworddist = args.thD,
-                .thcomposdist = args.thDc,
-                .thl1 = args.thXh,
-                .thdi = args.thDi,
-                .thit = args.thIt,
-                .streamcontexts = scontexts
-            };
-
-            result = processSignaturePair(&scontexts[0], &scontexts[1],
-                sigContext);
-            printResult(&tmpIndex, &result, &sigContext, args.minScore,
-                printFunctionPointer);
-
-            signature_unload(&scontexts[1]);
-            if (fflush(resultStream) != 0 || ferror(resultStream))
-                stopOnWriteError("the results", NULL);
-            /* After the result is flushed, so a pair is only ever marked done
-               once its output is on its way out. */
-            if (!ledgerRecord(&ledger, file1, file2))
-                stopOnWriteError("the ledger", args.ledgerFile);
-
-            long done;
-            #pragma omp atomic capture
-            done = ++donePairs;
-            if (done % progressStep == 0 || done == totalPairs) {
-                double elapsed = difftime(time(NULL), startTime);
-                double rate = elapsed > 0.0 ? (double) done / elapsed : 0.0;
-                slog_live(5,
-                    "Progress %ld/%ld pairs (%.1f%%), %.0f pairs/s, ETA %.0f min",
-                    done, totalPairs,
-                    100.0 * (double) done / (double) totalPairs, rate,
-                    rate > 0.0 ? ((double) (totalPairs - done)) / rate / 60.0 : 0.0);
-            }
-
+    struct pairProgress progress = {0, totalPairs, progressStep, startTime};
+    if (totalPairs > 0 && args.incrementalFile && index->maxIndexA == 1
+            && index->indexA == -1) {
+        /* One source otherwise leaves only one outer iteration for OpenMP.
+           Load it once, then create one team for all candidate pairs. The
+           barrier finishes every reader before unloading the source. */
+        StreamContext source = {0};
+        binary_import(&source, index->pathsMatrix);
+        #pragma omp parallel for schedule(dynamic)
+        for (int j = 1; j < index->maxIndexB; ++j)
+            comparePair(index, 0, j, &source, &progress, printFunctionPointer);
+        signature_unload(&source);
+    } else if (totalPairs > 0) {
+        /* Keep the full-library/multiple-incremental outer-loop schedule:
+           one team, one loaded source per active outer iteration. */
+        #pragma omp parallel for schedule(dynamic)
+        for (int i = index->indexA + 1; i < index->maxIndexA; ++i) {
+            StreamContext source = {0};
+            binary_import(&source, &index->pathsMatrix[i * MAX_PATH_LENGTH]);
+            for (int j = i + 1; j < index->maxIndexB; ++j)
+                comparePair(index, i, j, &source, &progress, printFunctionPointer);
+            signature_unload(&source);
         }
-        signature_unload(&scontextsBase[0]);
     }
 
     if (!ledgerClose(&ledger))

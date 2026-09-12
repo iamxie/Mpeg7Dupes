@@ -470,7 +470,7 @@ def find_signature(con: sqlite3.Connection, sig_dir: Path, content_hash: str,
     """
     key = (content_hash, fps, int(crop_bars), detector if crop_bars else "")
     row = con.execute(
-        "SELECT filename, crop_string, crop_state, frames FROM sigs "
+        "SELECT filename, crop_string, crop_state, frames, ffmpeg, detector FROM sigs "
         "WHERE hash=? AND fps=? AND crop_bars=? AND detector=?", key).fetchone()
     if not row:
         return None
@@ -489,7 +489,8 @@ def find_signature(con: sqlite3.Connection, sig_dir: Path, content_hash: str,
             "UPDATE sigs SET frames=? WHERE hash=? AND fps=? AND crop_bars=? "
             "AND detector=?", (header["frames"],) + key)
     return {"path": path, "filename": row[0], "crop": row[1],
-            "crop_state": row[2], "frames": header["frames"]}
+            "crop_state": row[2], "frames": header["frames"],
+            "ffmpeg": row[4], "detector": row[5]}
 
 
 def remember_signature(con: sqlite3.Connection, content_hash: str, fps: float,

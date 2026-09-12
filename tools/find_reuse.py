@@ -61,13 +61,11 @@ single timestamp, and so is the span that was taken out of the reference.
 Checked on synthetic clips cut at known points, with the speed ratio voted at
 1.0: exact in three cases of four, three frames early on both sides in one.
 
-The length is capped at what is possible either way, since a match cannot be
-longer than the shorter of the two videos, and one that needed capping is
-reported without a position. That guard was written when the comparison could
-report 1406 frames of a 900 frame overlap. The cause turned out to be counters
-carried from one candidate to the next, which is fixed, and on the 276 pairs
-where 11 needed capping before, none do now. It stays because it costs nothing
-and what it catches is silent.
+Overruns keep their raw frame count and an explicit warning; they are not
+clamped into a plausible measurement, and the report does not seek to their
+positions. Low-motion and repetitive scenes can be far off even at ratio 1.0.
+The known short-source false-match, uncertain-crop and reframe limitations
+travel with each JSON record and HTML report.
 
 Precedence
 ----------
@@ -92,6 +90,7 @@ coverage at all. tools/render_report.py turns that file into an HTML table.
 import argparse
 import csv
 import datetime
+import hashlib
 import json
 import math
 import os
@@ -103,6 +102,7 @@ import subprocess
 import sys
 import tomllib
 from pathlib import Path
+from reuse_record import crop_description, video_warnings
 
 # Sibling script. Both live in tools/, and Python puts the script's own
 # directory on the path, so this resolves when find_reuse.py is run from
@@ -270,12 +270,13 @@ def make_signature(src: Path, con, sig_dir: Path, settings: dict,
 
     Two levels of cache, and each skips a different expense. The store answers
     "is this still the file I recorded" from a stat, so an unchanged library
-    reads nothing at all; and it keys signatures on what a video contains, so a
+    need not hash video bytes; and it keys signatures on what a video contains, so a
     renamed or moved or copied file keeps the one it already has.
 
     The making is sigmake's: ffmpeg writes to a temporary name, the result is
     checked, and only then is it renamed into place, so a failure leaves no
-    half-signature behind to be found by a later run. A video whose bars could
+    half-signature behind to be found by a later run. Signature bytes are read
+    for the recorded SHA-256 even on a cache hit. A video whose bars could
     not be looked for is skipped, not fingerprinted as one without bars.
     """
     try:
@@ -298,14 +299,16 @@ def make_signature(src: Path, con, sig_dir: Path, settings: dict,
     # The caller draws a progress counter with a carriage return and no
     # newline, so anything printed here has to start its own line or it lands
     # in the middle of that one.
-    if made.produced and made.crop_state == "detected":
-        print(f"\n  bars     {src.name}: {made.crop}")
-    elif made.produced and made.crop_state == "uncertain":
-        print(f"\n  note     {src.name}: could not tell whether it has bars, "
-              f"fingerprinted uncropped", file=sys.stderr)
-    return {"hash": made.content_hash, "filename": made.filename,
-            "seconds": made.duration, "frames": made.frames,
-            "crop": made.crop, "crop_state": made.crop_state}
+    entry = {"hash": made.content_hash, "filename": made.filename,
+            "seconds": round(made.duration, 3), "frames": made.frames, "fps": settings["fps"],
+            "crop": made.crop, "crop_state": made.crop_state,
+            "signature": {"filename": made.filename,
+                          "sha256": sha256_file(made.path),
+                          "ffmpeg": made.ffmpeg, "detector": made.detector}}
+    print(f"\n  {src.name}: {crop_description(entry)}")
+    for warning in video_warnings(entry, role):
+        print(f"  note     {src.name}: {warning['message']}", file=sys.stderr)
+    return entry
 
 
 def collect_videos(root: Path, settings: dict) -> list[Path]:
@@ -334,6 +337,9 @@ def video_list(entries: dict, paths: dict, fps: float) -> list[dict]:
                          "seconds": round(entry["seconds"], 3),
                          "frames": entry["frames"], "fps": fps,
                          "crop": entry["crop"],
+                         "content_hash": entry.get("hash"),
+                         "content_hash_algorithm": "blake2b-128",
+                         "signature": entry.get("signature", {}),
                          # What the bar detector concluded: disabled,
                          # detected, none or uncertain. A record from before
                          # this field was kept says unknown.
@@ -356,6 +362,37 @@ def tool_version(mpeg7dupes: str) -> str:
         return done.stdout.strip().splitlines()[0] if done.stdout.strip() else ""
     except (OSError, subprocess.SubprocessError, IndexError):
         return ""
+
+
+def sha256_file(path: Path) -> str | None:
+    """Trace the exact bytes; an unavailable tool in a fatal record is unknown."""
+    try:
+        with path.open("rb") as handle:
+            return hashlib.file_digest(handle, "sha256").hexdigest()
+    except OSError:
+        return None
+
+
+def comparison_args(settings: dict) -> list[str]:
+    """Used both to invoke C and record every comparison setting explicitly."""
+    flags = ["-f", "csv", "-m", "longest", "-i", "0", "-k", "1",
+             "-b", "0.1", "-x", str(settings["thxh"]),
+             "-d", "9000" if settings["coarse_filter"] else "10001",
+             "-c", "60000"]
+    if settings.get("jobs", 0):
+        flags += ["-j", str(settings["jobs"])]
+    return flags
+
+
+def tool_identity(settings: dict) -> dict:
+    binary = Path(settings["mpeg7dupes"])
+    return {"mpeg7dupes": tool_version(str(binary)),
+            "binary_path": str(binary), "binary_sha256": sha256_file(binary),
+            "python": sys.version,
+            "scanner_sha256": sha256_file(Path(__file__)),
+            "detector": {"version": detect_bars.DETECTOR_VERSION if detect_bars else None,
+                         "sha256": sha256_file(Path(detect_bars.__file__)) if detect_bars else None,
+                         "enabled": settings["crop_bars"]}}
 
 
 def summarise(sources: list[dict], candidates: list[dict],
@@ -395,14 +432,20 @@ def build_record(settings: dict, sources: list[dict], candidates: list[dict],
     one carries the stage and the reason. matches holds only the pairs at or
     above the threshold, which limits says outright.
     """
+    for role, rows in (("source", sources), ("candidate", candidates)):
+        for video in rows:
+            video["warnings"] = video_warnings(video, role)
     return {
         "schema": SCHEMA,
+        "path_base": str(Path.cwd().resolve()),
         "generated_at": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
-        "tool": {"mpeg7dupes": tool_version(settings["mpeg7dupes"])},
+        "tool": settings.get("_tool_identity") or tool_identity(settings),
         "settings": {"fps": settings["fps"], "thxh": settings["thxh"],
                      "mode": "longest", "min_coverage": settings["min_coverage"],
                      "crop_bars": settings["crop_bars"],
-                     "coarse_filter": settings["coarse_filter"]},
+                     "coarse_filter": settings["coarse_filter"],
+                     "comparison_args": comparison_args(settings),
+                     "jobs_requested": settings.get("jobs", 0)},
         "summary": summary if summary is not None
                    else summarise(sources, candidates, hits),
         "limits": dict(LIMITS),
@@ -473,13 +516,8 @@ def compare(sig_dir: Path, source_bins: list[str], candidate_bins: list[str],
         candidates.write_text("\n".join(candidate_bins) + "\n")
         for i, source_bin in enumerate(source_bins, 1):
             source.write_text(source_bin + "\n")
-            cmd = [settings["mpeg7dupes"], "-f", "csv", "-m", "longest",
-                   "-i", "0", "-k", "1", "-b", "0.1", "-x", str(settings["thxh"]),
+            cmd = [settings["mpeg7dupes"], *comparison_args(settings),
                    "-l", str(candidates), "-n", str(source)]
-            if not settings["coarse_filter"]:
-                cmd += ["-d", "10001"]
-            if settings["jobs"]:
-                cmd += ["-j", str(settings["jobs"])]
             try:
                 done = subprocess.run(cmd, cwd=sig_dir, capture_output=True, text=True)
                 if done.returncode != 0:
@@ -530,6 +568,7 @@ def scan(args, settings, sources, requested) -> int:
     settings["mpeg7dupes"] = need(settings["mpeg7dupes"], "mpeg7dupes")
     settings["ffmpeg"] = need(settings["ffmpeg"], "ffmpeg")
     settings["ffprobe"] = need(settings["ffprobe"], "ffprobe")
+    settings["_tool_identity"] = tool_identity(settings)
 
     if settings["crop_bars"] and detect_bars is None:
         die("--crop-bars needs detect_bars.py beside this script. Pass "
@@ -693,13 +732,18 @@ def scan(args, settings, sources, requested) -> int:
     print()
     for hit in hits:
         print(f"{hit['candidate_path']}   used {hit['source']}, {where_of(hit)}")
+    if hits:
+        print(f"  note     {LIMITS['endpoints']}", file=sys.stderr)
+    print(f"  note     {LIMITS['reframe']}", file=sys.stderr)
     misses = [path for name in entries if name not in matched
               for path in shown[name]] if comparison_complete else []
     if args.show_misses and comparison_complete:
+        if misses:
+            print(f"  note     {LIMITS['misses']}", file=sys.stderr)
         for name in sorted(entries, key=lambda n: shown[n][0]):
             if name not in matched:
                 for path in shown[name]:
-                    print(f"{path}   no sign of any source, best "
+                    print(f"{path}   no match reaching the threshold, best "
                           f"{best.get(name, 0.0):.0f}%")
     for failure in failures:
         print(f"{failure['path']}   could not be processed: "

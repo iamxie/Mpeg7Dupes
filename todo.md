@@ -4,39 +4,7 @@ In the order worth doing them. Each entry says what it is, what is known,
 and what done looks like. Finished work is not kept here: benchmark.md and
 README.md hold what was learned, and the git log holds the rest.
 
-## 1. Use the requested cores for a single incremental source
-
-The incremental outer loop has one iteration for a single `-n` source, so
-`-j` cannot distribute its candidates. Keep the source read-only and distribute
-candidate pairs without nested OpenMP teams. Preserve output and ledger rules.
-
-Done when: multiple workers handle one source's candidates, every pair is
-processed once, results and resumed pair sets agree with `-j 1`, and a fixed
-signature set has measured timing and memory results.
-
-## 2. Carry the measured limits and provenance into each result
-
-README contains the short-source false-positive and low-motion position limits,
-but the record and page still need those qualifications, including on cache
-hits. Record all actual comparison settings and the binary/signature identities;
-retain each cached signature's original generator version. Resolve report media
-paths from the scan's directory even when the HTML is written elsewhere.
-
-Done when: CLI, JSON and HTML explain short/static/uncertain cases consistently,
-misses are described as below-threshold results, provenance can identify the
-actual inputs and programs, and relocated reports still resolve their media.
-
-## 3. A reproducible validation entry point
-
-The experimental validation scripts assume old locations and can leave a
-successful-looking result after a subprocess fails. Keep this work outside the
-public package, with explicit binary, manifest, signature and output locations.
-
-Done when: a failed stage cannot publish a complete result, inventories and
-pair counts are checked, run metadata identifies the inputs and tools, and
-retained signatures can be scored without recreating deleted videos.
-
-## 4. A third independent validation set
+## 1. A third independent validation set
 
 Nothing waits on it now: the false matches of short sources were left as
 they are and stated in README.md, and bars on still footage moved to a mode
@@ -57,7 +25,7 @@ Done when: with every setting frozen, the set is run once and reported per
 scenario and for both questions in its own benchmark.md section, and the
 detector's decision is checked against the truth for every file.
 
-## 5. Coverage at a speed ratio other than 1.0 counts the slower clip's frames (low)
+## 2. Coverage at a speed ratio other than 1.0 counts the slower clip's frames (low)
 
 Since build 7 a copy at another speed is found and placed: a 1.25x and a
 0.8x copy of a 60 s synthetic clip both come back whole, with the ratio
@@ -81,7 +49,7 @@ ratio, or the source-side span is used instead, with a test on a
 speed-changed stand-in; and the grid error is either accepted in the
 record's limits or the ratio is refined from the walk.
 
-## 6. A verify command that checks every signature in a directory (low)
+## 3. A verify command that checks every signature in a directory (low)
 
 An empty, truncated or malformed signature stops a run naming the file,
 but only when its turn comes, so in a large set a bad file is found late:
@@ -99,7 +67,7 @@ exactly those three; and the comparison can run the same check over its
 list before starting, so a bad file fails the run in seconds rather than
 hours.
 
-## 7. Tell a reframe with a blurred backdrop when one is a candidate (low)
+## 4. Tell a reframe with a blurred backdrop when one is a candidate (low)
 
 Low priority. Vertical reframes are not supported, decided on 2026-09-11:
 a 16:9 video made into 9:16, the picture across the middle over a blurred
@@ -123,7 +91,7 @@ candidates it fires on with that message, in the output, the JSON record and
 on the page; and a unit test pins a synthetic reframe and an upright video.
 If no measure separates them, README.md's limit stays the only warning.
 
-## 8. A second way to find bars, by their colour, for the user to choose (low)
+## 5. A second way to find bars, by their colour, for the user to choose (low)
 
 Low priority. The bar detector finds bars by what does not move, and that
 stays the default: it finds bars with lettering in them, where a test for
@@ -143,7 +111,7 @@ with the mode on, the second validation set's slide talk has its barred
 copies found; a unit test pins a still shot with black bars in both modes;
 and README.md's limit on slide talks names the option.
 
-## 9. Replace the vendored ffmpeg headers with the hundred lines they stand in for (low)
+## 6. Replace the vendored ffmpeg headers with the hundred lines they stand in for (low)
 
 `src/includes/` carries about twenty thousand lines of ffmpeg's internal
 headers, `avcodec.h`, `avfilter.h`, `internal.h`, `get_bits.h` and what
@@ -173,7 +141,7 @@ buffer that ends mid-field, and one run over the signatures kept in
 `archive/` (243 `.bin`, 890 `.sig`) diffs clean against the same run on
 build 10.
 
-## 10. Native Windows build (lowest)
+## 7. Native Windows build (lowest)
 
 Assessed on 2026-09-08 at commit `5ceaf19` by static analysis only and
 then shelved; commit `aaf7fa9` holds the full assessment. What blocks it,

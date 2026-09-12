@@ -217,9 +217,10 @@ class DurationCell(unittest.TestCase):
     def test_the_usual_speed_says_nothing_about_it(self):
         self.assertNotIn("Speed ratio", render_report.duration_cell(a_match()))
 
-    def test_bars_absent_on_both(self):
+    def test_missing_crop_state_is_unknown_on_legacy_matches(self):
         cell = render_report.duration_cell(a_match())
-        self.assertIn("none detected on either", cell)
+        self.assertEqual(cell.count("unknown (not recorded)"), 2)
+        self.assertNotIn("none detected", cell)
 
     def test_bars_on_theirs(self):
         cell = render_report.duration_cell(

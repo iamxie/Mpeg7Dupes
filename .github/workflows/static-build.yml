@@ -211,9 +211,11 @@ jobs:
           `mpeg7dupes -l list.txt`, and keep the pairs whose match covers at
           least 40 per cent of the shorter file. On the corpus those settings
           were tuned on, 96 edited videos from six sources, that found every
-          true duplicate with no false positives; no independent corpus has
-          been measured yet, and `benchmark.md` says what that does and does
-          not tell you. `tools/find_reuse.py` applies all of it.
+          true duplicate with no false positives. Two independent sets have
+          also been measured; `benchmark.md` records their false matches and
+          misses, and README describes the limits. `tools/find_reuse.py` asks
+          a different question: it uses `-b 0.1` and divides matchframes by
+          the source's frame count, with a known short-source false-match risk.
           EOF
           fi
 

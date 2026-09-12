@@ -18,13 +18,13 @@ part that matters: theirs before the point where the reuse starts, yours before
 the part that was taken. Pressing play on either shows the cut happening rather
 than making the reader hunt for it.
 
-Paths, and why the report has to sit where it does
---------------------------------------------------
-The record stores each video by the path find_reuse.py walked, so a report
-written beside the folders it named resolves them and one written elsewhere
-does not. Nothing is copied or re-encoded: a browser plays the original file
-off disk. This script checks every path it emits and says which ones will not
-resolve, rather than producing a page of broken players.
+Paths
+-----
+Schema 5 records the original scan directory in path_base. Paths are resolved
+there and translated relative to the output HTML, while the displayed paths
+stay as supplied. Legacy records can use --path-base; without it their old
+report-folder resolution is kept with a warning. Nothing is copied or
+re-encoded. Missing files are named so blank players are explained.
 
 What the page deliberately does not say
 ---------------------------------------
@@ -39,6 +39,7 @@ precision.
 import argparse
 import html
 import json
+import os
 import sys
 from pathlib import Path
 from urllib.parse import quote
@@ -49,7 +50,8 @@ from urllib.parse import quote
 # the terminal and the report must not describe one match two ways — and a
 # data module is all that takes, rather than loading the scanner.
 try:
-    from reuse_record import SCHEMA, READABLE_SCHEMAS, FAILED, SKIPPED, NOT_COMPARED, as_clock, where_of
+    from reuse_record import (SCHEMA, READABLE_SCHEMAS, FAILED, SKIPPED, NOT_COMPARED,
+                              LIMITS, as_clock, where_of, crop_description, video_warnings)
 except ImportError:
     sys.exit("render_report.py needs reuse_record.py beside it in tools/")
 
@@ -100,13 +102,16 @@ video { width: 100%; max-width: 320px; background: #000; border-radius: 4px;
 """
 
 
-def media_src(path: str, at: float = 0.0) -> str:
+def media_src(path: str, at: float = 0.0, *, native: bool = False) -> str:
     """A src that resolves from the report's folder and opens at `at` seconds.
 
     #t= is a media fragment, which browsers honour on file:// as well as over
     http, so the playhead lands without a line of script.
     """
-    url = quote(path.replace("\\", "/"), safe="/:")
+    # Resolved paths use the host filesystem's spelling. A backslash in a
+    # Linux filename is literal; only legacy un-resolved paths use the old
+    # Windows separator conversion. Encode colons to avoid a URI scheme.
+    url = quote(path if native else path.replace("\\", "/"), safe="/" if native else "/:")
     return f"{url}#t={max(0.0, at):.0f}" if at > 0 else url
 
 
@@ -119,13 +124,13 @@ def bars_lines(match: dict) -> str:
     detection, and cropping them is why a copy that has them still lines up
     with one that does not.
     """
-    sides = [("yours", match["source_crop"]), ("theirs", match["candidate_crop"])]
-    found = [(whose, crop) for whose, crop in sides if crop]
-    if not found:
-        return "<li>Bars: none detected on either video</li>"
-    return "".join(
-        f'<li>Bars on {whose}: cropped before comparing, '
-        f'<code>{html.escape(crop)}</code></li>' for whose, crop in found)
+    lines = []
+    for whose, side in (("yours", "source"), ("theirs", "candidate")):
+        crop = match.get(side + "_crop", "")
+        state = match.get(side + "_crop_state", "detected" if crop else "unknown")
+        description = crop_description({"crop": crop, "crop_state": state})
+        lines.append(f'<li>Bars on {whose}: {html.escape(description.removeprefix("Bars: "))}</li>')
+    return "".join(lines)
 
 
 def duration_cell(match: dict) -> str:
@@ -140,8 +145,8 @@ def duration_cell(match: dict) -> str:
                if match.get("overrun_reason") else "")
     speed = ("" if match.get("framerateratio", 1.0) == 1.0 else
              f'<li>Speed ratio <b>{match["framerateratio"]:.2f}</b>: the '
-             f'coverage counts the slower clip\'s frames, the positions hold '
-             f'to within that ratio\'s grid</li>')
+             f'coverage counts the slower clip\'s frames; positions have '
+             f'additional speed-grid error and need visual verification</li>')
     return (
         '<ul class="facts">'
         f'<li>Source length <b>{as_clock(match["source_seconds"])}</b></li>'
@@ -152,7 +157,7 @@ def duration_cell(match: dict) -> str:
         '</ul>')
 
 
-def player(path: str, at: float, name: str, shown_path: str) -> str:
+def player(path: str, at: float, name: str, shown_path: str, *, native: bool = False) -> str:
     """One video cell, parked `at` seconds in.
 
     data-start as well as the #t= fragment. Chromium ignores the fragment on
@@ -164,7 +169,7 @@ def player(path: str, at: float, name: str, shown_path: str) -> str:
     lead = ("" if not at else
             f'<div class="hint">opens at {as_clock(at)}, '
             f'{LEAD_IN:.0f}s before it</div>')
-    return (f'<video src="{media_src(path, at)}"{seek} controls '
+    return (f'<video src="{media_src(path, at, native=native)}"{seek} controls '
             f'preload="metadata"></video>'
             f'<div class="name">{html.escape(name)}</div>'
             f'<div class="path">{html.escape(shown_path)}</div>{lead}')
@@ -179,10 +184,10 @@ def row(match: dict) -> str:
 
     # Both sides are measured now, so both can be parked: theirs just before
     # the join, and ours just before the part that was taken.
-    mine = player(match["source_path"], before(match["source_begin_seconds"]),
-                  match["source"], match["source_path"])
-    theirs = player(match["candidate_path"], before(match["start_seconds"]),
-                    match["candidate"], match["candidate_path"])
+    mine = player(match.get("source_media", match["source_path"]), before(match["source_begin_seconds"]),
+                  match["source"], match["source_path"], native="source_media" in match)
+    theirs = player(match.get("candidate_media", match["candidate_path"]), before(match["start_seconds"]),
+                    match["candidate"], match["candidate_path"], native="candidate_media" in match)
     span = ("" if match["overrun"] else
             f'<div class="hint">runs to {as_clock(match["end_seconds"])}, '
             f'taken from {as_clock(match["source_begin_seconds"])}'
@@ -226,10 +231,38 @@ def unprocessed(record: dict) -> str:
     return f'<div class="warn">{lead}<ul>{"".join(items)}</ul></div>'
 
 
-def render(record: dict, missing: list[str]) -> str:
+def video_inventory(record: dict) -> str:
+    """Keep per-video decisions visible even when there are no matches."""
+    items = []
+    for role, videos in (("source", record["sources"]), ("candidate", record["candidates"])):
+        for video in videos:
+            if "crop_state" not in video and "crop" not in video:
+                continue
+            warnings = video_warnings(video, role)
+            detail = " ".join(w["message"] for w in warnings)
+            status = "no match reaching the threshold" if video["status"] == "checked" else video["status"]
+            items.append(f'<li>{html.escape(video["path"])} ({role}, {html.escape(status)}): '
+                         f'{html.escape(crop_description(video))}'
+                         f'<div class="hint">{html.escape(detail)}</div></li>')
+    return '<details class="method"><summary>Video decisions and warnings</summary><ul>' + "".join(items) + '</ul></details>' if items else ""
+
+
+def render(record: dict, missing: list[str], media_paths: dict | None = None) -> str:
     """The whole page. It shows what the record says and decides nothing:
     which candidates matched was settled by find_reuse.py at its threshold."""
-    settings, matches = record["settings"], record["matches"]
+    settings = record["settings"]
+    videos = {v["path"]: v for v in record["sources"] + record["candidates"]}
+    matches = []
+    for original in record["matches"]:
+        match = dict(original)
+        for side in ("source", "candidate"):
+            video = videos.get(match[side + "_path"], {})
+            crop = video.get("crop", match.get(side + "_crop", ""))
+            match[side + "_crop"] = crop
+            match[side + "_crop_state"] = video.get("crop_state", "detected" if crop else "unknown")
+            if media_paths:
+                match[side + "_media"] = media_paths[match[side + "_path"]]
+        matches.append(match)
     summary = record.get("summary") or {}
     sources = summary.get("sources_requested", len(record["sources"]))
     candidates = summary.get("candidates_requested", len(record["candidates"]))
@@ -252,8 +285,8 @@ def render(record: dict, missing: list[str]) -> str:
                 else "")
         warning += (f'<div class="warn"><b>These videos are not where this '
                     f'report expects them.</b> Their players will stay blank. '
-                    f'Put the report in the folder the paths are relative to, '
-                    f'or rerun find_reuse.py from there.<ul>{listed}{more}</ul>'
+                    f'Restore the files at their recorded locations, or scan '
+                    f'their new locations.<ul>{listed}{more}</ul>'
                     f'</div>')
 
     if matches:
@@ -263,8 +296,16 @@ def render(record: dict, missing: list[str]) -> str:
 {chr(10).join(row(m) for m in matches)}
   </table>"""
     else:
-        body = ('<div class="empty">No candidate reached the '
-                f'{settings["min_coverage"]:.0f}% threshold.</div>')
+        complete = summary.get("complete", True) and record.get("comparison", {}).get("complete", True)
+        message = (f'No candidate reached the {settings["min_coverage"]:.0f}% threshold; reuse is not ruled out.'
+                   if complete else 'No completed match to show. Comparisons are incomplete; see the file statuses above.')
+        body = f'<div class="empty">{message}</div>'
+
+    # Current interpretation warnings also apply to older readable records.
+    limits = dict(record.get("limits", {}))
+    limits.update(LIMITS)
+    caveats = '<ul>' + ''.join(f'<li>{html.escape(value)}</li>' for value in limits.values()) + '</ul>'
+    flags = html.escape(' '.join(settings.get("comparison_args", [])) or 'not recorded (legacy record)')
 
     tool = record.get("tool", {}).get("mpeg7dupes") or "unknown build"
     return f"""<!doctype html>
@@ -289,19 +330,17 @@ def render(record: dict, missing: list[str]) -> str:
         <dd>{"on" if settings["crop_bars"] else "off"}</dd>
       <dt>Coarse filter</dt><dd>{"off, -d 10001" if settings.get("coarse_filter") is False else "on"}</dd>
       <dt>Comparison built</dt><dd>{html.escape(tool)}</dd>
+      <dt>Comparison arguments</dt><dd><code>{flags}</code></dd>
     </dl>
-    <p>Matching is on what the frames look like, not on the file contents, so
-       re-encoding, rescaling and trimming do not hide it. Each start and end
-       is the first and the last frame the comparison accepted, at
-       {settings["fps"]:g} samples a second, so a boundary can sit a frame or
-       two from the cut. One match is shown per pair, the longest run found;
-       a source reused in several separate places is shown by the longest of
-       them. An excerpt shorter than about {50 / settings["fps"]:.0f} seconds
-       of source is found only partly or not at all at this sampling rate.
-       Coverage here is against the length of the source: how much of your
-       video their video holds.</p>
+    <p>An excerpt shorter than about {50 / settings["fps"]:g} seconds of source
+       is found only partly or not at all at this sampling rate.</p>
+    <p>Low-motion or repetitive scenes can place a match far from its true
+       location, even at ratio 1.0. Short sources can match unrelated footage
+       with simple light/dark layouts. A miss does not rule out reuse.</p>
+    <details><summary>Limits and interpretation</summary>{caveats}</details>
   </div>
   {body}
+  {video_inventory(record)}
 </main>
 <script>
 // Park each player before the match it is showing. The #t= fragment on the
@@ -325,8 +364,10 @@ def main() -> int:
     parser.add_argument("record", metavar="JSON",
                         help="The file written by find_reuse.py --json.")
     parser.add_argument("--out", metavar="FILE", default="report.html",
-                        help="Where to write the page. Default report.html. "
-                             "Put it where the video paths resolve from.")
+                        help="Where to write the page. Default report.html.")
+    parser.add_argument("--path-base", metavar="DIR",
+                        help="Original scan folder, for legacy records without path_base, "
+                             "or to explicitly relocate relative video paths.")
     args = parser.parse_args()
 
     try:
@@ -341,17 +382,24 @@ def main() -> int:
                  f"this script reads {SCHEMA!r}")
 
     out = Path(args.out)
-    base = out.parent if str(out.parent) else Path(".")
+    # Legacy records did not store cwd; keep their old output-folder fallback
+    # with a visible warning, or let the caller supply the original scan base.
+    base = Path(args.path_base or record.get("path_base") or out.parent).resolve()
+    if not args.path_base and not record.get("path_base"):
+        print("legacy record has no path_base; assuming the report folder. "
+              "Use --path-base for the original scan folder.", file=sys.stderr)
     referenced = {m["source_path"] for m in record["matches"]}
     referenced |= {m["candidate_path"] for m in record["matches"]}
     missing = sorted(p for p in referenced if not (base / p).exists())
 
-    out.write_text(render(record, missing))
+    media_paths = {p: os.path.relpath((base / p).resolve(), out.parent.resolve())
+                   for p in referenced}
+    out.write_text(render(record, missing, media_paths))
     print(f"wrote {out}")
     if missing:
         print(f"{len(missing)} of {len(referenced)} videos do not resolve from "
-              f"{base}/, so their players will be blank. Move the report, or "
-              f"rerun find_reuse.py from the folder the paths are relative to.",
+              f"{base}/, so their players will be blank. Restore the files, or "
+              f"supply --path-base if the video tree moved.",
               file=sys.stderr)
     return 0
 

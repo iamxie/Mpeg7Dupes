@@ -31,8 +31,10 @@ describe one match two ways.
 #    scope. A matched candidate can have comparison_complete=False; only fully
 #    checked candidates can enter misses. error marks fatal failures even when
 #    some earlier comparisons completed. The renderer still accepts schema 3.
-SCHEMA = "find_reuse/4"
-READABLE_SCHEMAS = ("find_reuse/3", SCHEMA)
+# 5: explicit scan path base, reproducibility metadata and per-video warnings.
+#    Match measurements and threshold membership are unchanged.
+SCHEMA = "find_reuse/5"
+READABLE_SCHEMAS = ("find_reuse/3", "find_reuse/4", SCHEMA)
 
 # Exit status of find_reuse.py. Fixed here and in --help, tested in
 # tests/unit/test_find_reuse.py.
@@ -60,9 +62,9 @@ LIMITS = {
              "found. A candidate that reuses a source in several separate "
              "places is reported by the longest of them, not their sum.",
     "speed": "framerateratio is the speed of the candidate relative to the "
-             "source as the comparison voted it, on a grid of thirtieths. At "
-             "1.0 coverage and positions mean what they say. At any other "
-             "value the walk keeps the two clips in step at that ratio, "
+             "source as the comparison voted it, on a grid of thirtieths. "
+             "Positions always need visual verification. Away from 1.0 "
+             "the walk keeps the two clips in step at that ratio, "
              "matchframes counts the frames of the slower clip, so "
              "coverage_percent under-reads by the ratio when the candidate "
              "is the faster one, and a position on the faster side can be "
@@ -73,14 +75,54 @@ LIMITS = {
     "endpoints": "start and end are the first and the last frame the "
                  "comparison accepted, at the sampling rate in fps, so end is "
                  "the time of the last matched frame, not the frame after it. "
-                 "Measured on synthetic clips cut at known points with the "
-                 "ratio at 1.0: exact in three cases of four and three frames "
-                 "early on both sides in one.",
+                 "Low-motion or repetitive scenes can place the match far "
+                 "from the true location, even at ratio 1.0. Verify the video; "
+                 "a timestamp is not a guarantee of a frame-accurate cut.",
     "coverage": "coverage_percent is matchframes over the source's own frame "
-                "count, so it answers how much of the source this candidate "
-                "holds. It is not the duplicate-finding measure, which divides "
+                "count, an estimate of source use with boundary and speed "
+                "errors. It is not the duplicate-finding measure, which divides "
                 "by the shorter of the two.",
+    "short_source": "Sources shorter than about two minutes have produced false "
+                    "matches on simple light/dark layouts. This is a risk "
+                    "warning, not a classifier; longer sources are not guaranteed safe.",
+    "crop_uncertain": "When motion-based cropping is uncertain (for example, "
+                      "a static scene or too few samples), the signature is "
+                      "uncropped and barred copies may be missed.",
+    "reframe": "A horizontal-to-vertical reframe or other substantial content "
+               "crop is not reliably supported. Video orientation alone does "
+               "not identify this transformation.",
+    "misses": "No match reaching the threshold was found among completed "
+              "comparisons. This does not rule out reuse below the threshold "
+              "or reuse the comparison could not detect.",
 }
+
+CROP_LABELS = {"disabled": "not enabled", "detected": "detected",
+               "none": "none detected", "uncertain": "uncertain",
+               "unknown": "unknown (not recorded)"}
+
+
+def crop_description(video: dict) -> str:
+    state = video.get("crop_state", "unknown")
+    label = CROP_LABELS.get(state, CROP_LABELS["unknown"])
+    if state == "detected" and video.get("crop"):
+        label += ", cropped before comparing, " + video["crop"]
+    if state == "uncertain":
+        label += "; fingerprinted uncropped, barred copies may be missed"
+    return "Bars: " + label
+
+
+def video_warnings(video: dict, role: str) -> list[dict]:
+    codes = []
+    seconds = video.get("seconds", 0)
+    # Container duration may include audio extending past the video track.
+    # Prefer the actual sampled video length; legacy records can lack counts.
+    if video.get("frames", 0) > 0 and video.get("fps", 0) > 0:
+        seconds = video["frames"] / video["fps"]
+    if role == "source" and 0 < seconds < 120:
+        codes.append("short_source")
+    if video.get("crop_state") == "uncertain":
+        codes.append("crop_uncertain")
+    return [{"code": code, "message": LIMITS[code]} for code in codes]
 
 
 def as_clock(seconds: float) -> str:
@@ -98,6 +140,6 @@ def where_of(hit: dict) -> str:
     ratio = hit.get("framerateratio", 1.0)
     if ratio != 1.0:
         where += (f"; at speed ratio {ratio:.2f}, so the coverage counts the "
-                  f"slower clip's frames and the positions hold to within "
-                  f"that ratio's grid")
+                  f"slower clip's frames; positions have additional speed-grid "
+                  f"error and need visual verification")
     return where

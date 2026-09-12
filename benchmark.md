@@ -997,10 +997,27 @@ declined, and the night sky's clip above.
 
 ## Reproducing
 
+Build 12 adds candidate-level scheduling for a single incremental source.
+On Linux aarch64 (GCC 12, eight visible cores), one retained five-minute
+source against the other 47 five-minute signatures, at `-b 0.1 -d 9000
+-c 60000 -x 290 -i 0 -k 1`, took 59.28 s at build 11 with `-j 4` and
+19.64 s at build 12 with `-j 4`: medians of three warm runs after a warm-up.
+With `-j 1` the medians were 59.69 s and 59.05 s respectively. Every trial's
+CSV and completed ledger pair set agreed. Per-process peak RSS from Linux
+`wait4`, including process startup, was 15,712 KiB for all four configurations.
+This excludes fingerprinting and is a measurement of this set on this machine,
+not a general speed guarantee or a CI timing threshold.
+
+The new build also re-compared the second validation set's retained signatures:
+all 6,670 Q1 and 3,364 Q2 requested pairs completed, and all emitted CSV fields
+agreed with its archived build 9 run after resolving signature names. This is
+a scheduling/input regression; it does not revalidate detector 3 or constitute
+a third independent dataset.
+
 What is in this repository and needs nothing private:
 
 - `make test` compares six checked-in signatures, synthetic sources at 30 s
-  and 5 fps, against two recorded copies of the output, one per mode;
+  and 5 fps, against the recorded `compare-longest.csv` output;
   `tests/README.md` has the fixtures and what each pins.
 - `make smoke` takes three synthetic clips from video to result through
   `tools/find_reuse.py` twice, with the real ffmpeg.
@@ -1012,7 +1029,7 @@ What is not: the corpus. The six source videos are private, and the scripts
 that cut, treat, fingerprint and sweep them live in the experiment area
 beside this repository, not in it. Building the same corpus from your own
 sources takes the recipes in [The corpus](#the-corpus), the ground truth
-rule, and a sweep over `-x` in both modes with `-i 0 -b 0.1 -k 1`; each run
+rule, and a sweep over `-x` in `longest` with `-i 0 -b 0.1 -k 1`; each run
 should record the build that produced it, read from the run's own log, and
 the digests of its inputs, which `-s` writes into the ledger for you.
 
@@ -1026,12 +1043,12 @@ the digests of its inputs, which `-s` writes into the ledger for you.
   on some material. Not a rate.
 - **One sampling rate.** Everything is at 5 fps. Whether 2 or 3 fps would
   hold up is untested.
-- **`-d` and `-c` were checked and left alone.** Their ratio is an integer
-  division of two popcounts, so it is only ever 0 or 1 and never reaches the
-  defaults of 9000 and 60000. Forcing both to 1 changes which Hough peak is
-  selected, with the matched region, frame counts and boundaries unchanged;
-  it is 27 per cent faster and rejects the most similar coarse signatures, so
-  it is not a safe optimisation. `todo.md` has the audit.
+- **The original `-d`/`-c` sweep predates the build 7 fix.** Through build 6,
+  integer division reduced the distance to 0 or 1 and the defaults rejected
+  nothing. Build 7 corrected the scale and direction; the measurements under
+  [Build 7](#build-7-the-comparison-changed-and-what-it-did-to-the-corpus) and the independent validations describe the working
+  filter. The earlier experiment with both thresholds at 1 is not a usable
+  optimisation or evidence about the current defaults.
 - **`-m fast` is not in the sweep.** It took the first candidate that
   qualified where `full` at least chose between them, and in every pilot it
   equalled `full` or was worse. Both went in build 10.

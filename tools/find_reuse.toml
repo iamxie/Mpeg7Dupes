@@ -29,8 +29,10 @@ fps = 5.0
 #          600 frames of the 1250 in the shorter file
 #
 # So the usable window is (37.1, 48.0], about eleven points wide, and 40 sits
-# near its middle. Raising it to 50 drops recall from 99.6% to 92.6% by cutting
+# near its lower end. Raising it to 50 drops recall from 99.6% to 92.6% by cutting
 # into that cluster. Lowering it to 30 admits 25 advertisement-only pairs.
+# That sweep divides by the shorter video (same-video question). This wrapper
+# divides by the source's own frame count; the two 40% rules are not equivalent.
 #
 # At 40 the result over those 4560 pairs is 717 of 720 true duplicates found
 # with no false positives, bars left on; 720 of 720 with them cropped. Those

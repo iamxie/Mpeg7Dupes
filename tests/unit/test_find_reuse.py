@@ -69,7 +69,7 @@ class Run(unittest.TestCase):
         done = self.run_script("--show-misses")
         self.assertEqual(done.returncode, 0, done.stderr)
         rec = self.record()
-        self.assertEqual(rec["schema"], "find_reuse/4")
+        self.assertEqual(rec["schema"], "find_reuse/5")
         self.assertEqual(sorted(self.statuses(rec).values()), ["checked", "matched"])
         self.assertEqual(self.statuses(rec, "sources"), {"mine.mp4": "processed"})
         s = rec["summary"]
@@ -83,7 +83,7 @@ class Run(unittest.TestCase):
         self.assertEqual(hit["framerateratio"], 1.0)
         self.assertFalse(hit["overrun"])
         self.assertIn("used mine.mp4, starting at 00:06", done.stdout)
-        self.assertIn("no sign of any source, best 16%", done.stdout)
+        self.assertIn("no match reaching the threshold, best 16%", done.stdout)
         self.assertIn("2 candidates against 1 source, 1 match over 40%", done.stdout)
 
     def test_a_candidate_that_cannot_be_read_is_recorded_and_exits_1(self):
@@ -169,7 +169,8 @@ class Run(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertTrue(self.calls())
         for call in self.calls():
-            self.assertNotIn("-d ", call)
+            self.assertIn("-d 9000", call)
+            self.assertIn("-c 60000", call)
         self.assertIs(self.record()["settings"]["coarse_filter"], True)
 
     def test_no_coarse_filter_passes_d_10001_and_says_so(self):

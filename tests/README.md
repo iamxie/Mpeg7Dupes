@@ -51,6 +51,15 @@ Not every function has a mirror test. A behaviour change or a fixed defect
 gets a test that would have failed before it; the rest is covered by the
 observable results above.
 
+`unit/test_p2_parallel.py` observes real worker IDs for a single incremental
+source, checks every candidate pair exactly once (including no-match ledger
+entries), compares serial/parallel CSV, and checks resume and output failure.
+`unit/test_p2_record.py` checks cache-stable warnings and original generator
+metadata, all crop states, incomplete-result wording and media links when the
+HTML is written outside the scan directory. These run under `make test`, also
+with AddressSanitizer for the C path; timings are measured separately, not
+asserted as CI speed thresholds.
+
 ## Tests that used to pin a known limitation
 
 Nothing here records behaviour kept as it is rather than as it should be

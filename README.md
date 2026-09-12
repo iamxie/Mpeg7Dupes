@@ -215,8 +215,39 @@ failure. A later comparison failure preserves matches from earlier completed
 sources. Once the input inventory is collected, fatal errors also write a
 record when `--json` is supplied, so an earlier successful record is not left
 looking like this run. JSON is replaced atomically; a write failure leaves
-the previous file intact and reports exit 2. Records use `find_reuse/4`;
-`render_report.py` reads both version 3 and version 4 and shows unfinished work.
+the previous file intact and reports exit 2. Records use `find_reuse/5`;
+`render_report.py` reads versions 3, 4 and 5 and shows unfinished work.
+
+Every processed video carries its crop decision: `disabled`, `detected`,
+`none` or `uncertain` (`unknown` for legacy metadata). These decisions and
+warnings appear on both fresh and cached scans. Short sources get the known
+simple-layout false-match warning; an uncertain crop warns that barred copies
+may be missed. All records and pages state the low-motion/repetition position
+limit and unsupported reframe limit. A checked candidate means **no match
+reaching the threshold was found**, which does not rule out reuse.
+
+`settings.comparison_args` contains the actual C flags, including the wrapper's
+`-b 0.1 -d 9000 -c 60000`; `tool` records the binary SHA-256, scanner and current
+detector code identities. Each video's `content_hash` is BLAKE2b-128 and its
+`signature` records the filename, SHA-256, stored detector version and original
+ffmpeg version. The stored generator version is retained on cache hits; it is
+not replaced by the ffmpeg currently on PATH. A legacy missing identity stays
+unknown. `jobs_requested` is the requested count (0 means automatic); C logs
+the effective count after limiting it to available cores.
+Recording SHA-256 reads each signature, including on a cache hit; it does not
+decode or rehash an unchanged video.
+
+The record preserves the paths supplied to the scanner and saves their
+resolution base in `path_base`. A report can be written elsewhere:
+
+```sh
+uv run tools/render_report.py reuse.json --out /path/to/reports/reuse.html
+```
+
+Players resolve from the original scan folder, then use paths relative to the
+HTML file. Videos are not copied. For a legacy record without a saved base,
+pass `--path-base /original/scan/folder`; without it the renderer warns and
+uses the report folder, as older versions did.
 
 Settings are checked before creating output: finite positive fps, coverage
 from 0 to 100, nonnegative integer jobs and valid C integer ranges. TOML
@@ -488,8 +519,13 @@ disk again, so a file is parsed once per comparison it takes part in.
 
 ## Long runs
 
-**Threads.** Every core by default; `-j N` limits it. **Progress.** `-v`
-reports every 1 per cent with a rate and an ETA.
+**Threads.** Every core by default; `-j N` limits it. Since build 12, a single
+`-n` source is loaded once and its candidate pairs are distributed across
+workers. Full-library comparisons retain the outer-loop schedule. The Python
+wrapper invokes C once per source, so it does not multiply `--jobs` by the
+number of sources. `-vv` includes the worker and pair indices for tracing.
+**Progress.** `-v` reports every 1 per cent (at least 50 pairs) with a rate and
+an ETA.
 
 **Interrupting.** Pass `-s` and every pair is recorded as it finishes,
 whether or not it matched. Run the same command again after an interruption

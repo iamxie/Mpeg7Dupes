@@ -94,6 +94,8 @@ class Signature:
     crop: str
     crop_state: str
     produced: bool
+    ffmpeg: str = ""
+    detector: str = ""
 
 
 def resolve_tool(program: str) -> str | None:
@@ -244,7 +246,8 @@ def lookup(con, sig_dir: Path, content_hash: str, *, fps: float,
         return None
     return Signature(found["path"], found["filename"], content_hash,
                      facts["duration"], found["frames"], found["crop"],
-                     found["crop_state"], produced=False)
+                     found["crop_state"], produced=False,
+                     ffmpeg=found["ffmpeg"], detector=found["detector"])
 
 
 def make(src: Path, con, sig_dir: Path, *, fps: float, crop_bars: bool,
@@ -291,4 +294,5 @@ def make(src: Path, con, sig_dir: Path, *, fps: float, crop_bars: bool,
             raise
         return Signature(sig_dir / built.filename, built.filename, content_hash,
                          built.duration, built.frames, built.crop.crop,
-                         built.crop.state, produced=True)
+                         built.crop.state, produced=True,
+                         ffmpeg=ffmpeg_version, detector=detector if crop_bars else "")
