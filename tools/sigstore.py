@@ -57,6 +57,11 @@ cache goes on serving signatures taken from a different picture, with no
 symptom — the same class of fault as comparing results from two builds of the
 binary, which is what `version.h` exists to prevent.
 
+The detector field also identifies the selected mode: motion retains `3`,
+while the opt-in colour detector uses `black-1`. Both live in the existing
+schema and neither replaces the other's generations. With cropping disabled,
+the detector key is empty regardless of which mode was selected.
+
 `ffmpeg` is recorded but deliberately not in the key. MPEG-7 signature is a
 standard format and its output should be stable, so re-fingerprinting a whole
 library on every ffmpeg upgrade costs more than it protects. Recorded, it can

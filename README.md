@@ -215,8 +215,8 @@ failure. A later comparison failure preserves matches from earlier completed
 sources. Once the input inventory is collected, fatal errors also write a
 record when `--json` is supplied, so an earlier successful record is not left
 looking like this run. JSON is replaced atomically; a write failure leaves
-the previous file intact and reports exit 2. Records use `find_reuse/5`;
-`render_report.py` reads versions 3, 4 and 5 and shows unfinished work.
+the previous file intact and reports exit 2. Records use `find_reuse/6`;
+`render_report.py` reads versions 3 through 6 and shows unfinished work.
 
 Every processed video carries its crop decision: `disabled`, `detected`,
 `none` or `uncertain` (`unknown` for legacy metadata). These decisions and
@@ -225,6 +225,11 @@ simple-layout false-match warning; an uncertain crop warns that barred copies
 may be missed. All records and pages state the low-motion/repetition position
 limit and unsupported reframe limit. A checked candidate means **no match
 reaching the threshold was found**, which does not rule out reuse.
+
+`settings.crop_mode` and each processed video's `crop_mode` say `motion`,
+`black`, or `disabled`. The selected mode is also in `tool.detector.mode`;
+the cache detector key is `3` for motion and `black-1` for black. Older
+records describe motion cropping, or disabled cropping, and remain readable.
 
 `settings.comparison_args` contains the actual C flags, including the wrapper's
 `-b 0.1 -d 9000 -c 60000`; `tool` records the binary SHA-256, scanner and current
@@ -449,7 +454,7 @@ cent of the shorter file the pair is not reported. On the two validation
 sets 8 of 11 such pairs, whose longest shared piece was 38.7 per cent of the
 shorter file, were not.
 
-**Bars on a still picture.** When a video barely moves at all, the bar
+**Bars on a still picture.** When a video barely moves at all, the default motion
 detector says it cannot tell and nothing is cropped. Up to version 1 it went
 wrong on footage that is still apart from a short moving stretch, a clip
 spliced into a static shot say, taking still rows of the picture for bars:
@@ -465,7 +470,7 @@ material version 2 was not fixed on, it cropped none of 116 copies wrongly.
 
 **A slide talk with bars added may not be found at all.** When the middle of
 the frame barely moves for the whole video, as in a talk that stays on its
-slides, the bar detector cannot tell bars from picture and crops nothing. A
+slides, the motion detector cannot tell bars from picture and crops nothing. A
 copy with bars added at the top and bottom is then compared with its bars
 on, and the bars shift the picture inside the frame. On the second
 validation set a slide talk's two copies with bars matched none of its ten
@@ -475,7 +480,25 @@ not every still video: the first set's two still shots, a sunset and a night
 sky, were found with their bars on. Do not read a miss against a barred copy
 of a video that barely moves as a clean result.
 
-**A band that never changes is cropped like a bar.** The detector looks for
+For plain black bars on this kind of footage, explicitly choose
+`--crop-mode black` in `find_reuse.py` (`crop_mode = "black"` in its TOML),
+or `--mode black` in `detect_bars.py`. Motion remains the default; there is
+no automatic fallback. `--no-crop-bars` disables either mode. Both source
+and candidate use the chosen mode, with separate cache keys, so switching
+back to motion reuses its existing signatures.
+
+Black mode uses ffmpeg's `cropdetect` on full-resolution, full-range grey,
+with black level 16/255 and no bright outliers. It keeps the union of picture
+bounds across the same sampled windows as motion, rounds toward retaining
+picture, and only crops top/bottom. All-dark or excessively narrow picture
+is uncertain and remains uncropped. Near-black compressed bars and a still
+textured copy are covered by generated tests, including a complete cold/hot
+scan. Dark picture edges can still be mistaken for bars, lettering stops the
+crop, and changes outside the samples can be missed. Review the crop; JSON,
+terminal and HTML carry this warning. This mode has **not** been validated
+on a new independent set or on the archived slide video's original pixels.
+
+**A band that never changes is cropped like a bar.** The motion detector looks for
 rows that do not move, so a news ticker or a caption strip across the whole
 width that stays the same for the whole video comes off with the bars: on the
 second set a 119-row ticker, on every copy that carried it whole. Cropped

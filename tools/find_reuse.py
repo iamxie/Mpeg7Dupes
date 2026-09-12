@@ -138,6 +138,7 @@ DEFAULTS = {
     # positives and 13.9 points of daylight between them. That is the corpus
     # the settings were tuned on, not an independent one. See benchmark.md.
     "crop_bars": True,
+    "crop_mode": "motion",
     # Let mpeg7dupes' coarse filter skip pairs of segments that cannot match.
     # On the tuning corpus it lost nothing and took two thirds off the
     # comparison time; --no-coarse-filter passes -d 10001 so a run can check
@@ -198,6 +199,8 @@ def build_parser() -> argparse.ArgumentParser:
                         "do not crop them off before fingerprinting. On by "
                         "default; turning it off costs accuracy on any video "
                         "that has them.")
+    p.add_argument("--crop-mode", choices=("motion", "black"),
+                   help="Bar detection: motion (default), or opt-in black for plain bars on still footage.")
     p.add_argument("--no-coarse-filter", dest="coarse_filter",
                    action="store_false", default=None,
                    help="Pass -d 10001 to mpeg7dupes, which turns off the "
@@ -284,7 +287,8 @@ def make_signature(src: Path, con, sig_dir: Path, settings: dict,
             src, con, sig_dir, fps=settings["fps"],
             crop_bars=settings["crop_bars"], detector=detector,
             ffmpeg=settings["ffmpeg"], ffprobe=settings["ffprobe"],
-            ffmpeg_version=ffmpeg, overwrite=settings["overwrite"])
+            ffmpeg_version=ffmpeg, overwrite=settings["overwrite"],
+            crop_mode=settings.get("crop_mode", "motion"))
     except sigmake.ToolError:
         raise
     except (OSError, sigmake.SignatureError) as exc:
@@ -302,6 +306,7 @@ def make_signature(src: Path, con, sig_dir: Path, settings: dict,
     entry = {"hash": made.content_hash, "filename": made.filename,
             "seconds": round(made.duration, 3), "frames": made.frames, "fps": settings["fps"],
             "crop": made.crop, "crop_state": made.crop_state,
+            "crop_mode": settings.get("crop_mode", "motion") if settings["crop_bars"] else "disabled",
             "signature": {"filename": made.filename,
                           "sha256": sha256_file(made.path),
                           "ffmpeg": made.ffmpeg, "detector": made.detector}}
@@ -337,6 +342,7 @@ def video_list(entries: dict, paths: dict, fps: float) -> list[dict]:
                          "seconds": round(entry["seconds"], 3),
                          "frames": entry["frames"], "fps": fps,
                          "crop": entry["crop"],
+                         "crop_mode": entry.get("crop_mode", "unknown"),
                          "content_hash": entry.get("hash"),
                          "content_hash_algorithm": "blake2b-128",
                          "signature": entry.get("signature", {}),
@@ -390,7 +396,8 @@ def tool_identity(settings: dict) -> dict:
             "binary_path": str(binary), "binary_sha256": sha256_file(binary),
             "python": sys.version,
             "scanner_sha256": sha256_file(Path(__file__)),
-            "detector": {"version": detect_bars.DETECTOR_VERSION if detect_bars else None,
+            "detector": {"version": detect_bars.detector_id(settings.get("crop_mode", "motion")) if detect_bars and settings["crop_bars"] else None,
+                         "mode": settings.get("crop_mode", "motion") if settings["crop_bars"] else "disabled",
                          "sha256": sha256_file(Path(detect_bars.__file__)) if detect_bars else None,
                          "enabled": settings["crop_bars"]}}
 
@@ -443,6 +450,7 @@ def build_record(settings: dict, sources: list[dict], candidates: list[dict],
         "settings": {"fps": settings["fps"], "thxh": settings["thxh"],
                      "mode": "longest", "min_coverage": settings["min_coverage"],
                      "crop_bars": settings["crop_bars"],
+                     "crop_mode": settings.get("crop_mode", "motion") if settings["crop_bars"] else "disabled",
                      "coarse_filter": settings["coarse_filter"],
                      "comparison_args": comparison_args(settings),
                      "jobs_requested": settings.get("jobs", 0)},
@@ -576,7 +584,7 @@ def scan(args, settings, sources, requested) -> int:
             "rather than one that might be either.")
     # Only meaningful when cropping, and the store leaves it out of the key
     # otherwise, so an uncropped set is not retired by a retuned detector.
-    detector = detect_bars.DETECTOR_VERSION if settings["crop_bars"] else ""
+    detector = detect_bars.detector_id(settings["crop_mode"]) if settings["crop_bars"] else ""
     sig_dir.mkdir(parents=True, exist_ok=True)
     con = sigstore.open_db(Path(args.db) if args.db else sig_dir / INDEX_NAME)
     moved = sigstore.note_sig_dir(con, sig_dir)

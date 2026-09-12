@@ -150,7 +150,7 @@ class Decide(Base):
 
         sigmake.detect_bars = SimpleNamespace(
             analyse=analyse, POINTS=6, PER_POINT=12, THRESHOLD=5.0,
-            MIN_FRACTION=0.02, DETECTOR_VERSION="1")
+            MIN_FRACTION=0.02, DETECTOR_VERSION="1", detector_id=lambda mode: "1")
         return seen
 
     def tearDown(self):
@@ -263,7 +263,8 @@ class Make(Base):
         video = self.a_video()
         self.make(video)
         self.assertTrue(self.make(video, fps=3.0).produced)
-        self.assertTrue(self.make(video, crop_bars=True, detector="1").produced)
+        self.assertTrue(self.make(video, crop_bars=True,
+                                  detector=sigmake.detect_bars.detector_id()).produced)
         self.assertEqual(len(self.calls("ffmpeg")), 3)
 
     def test_a_failed_overwrite_keeps_the_old_signature_and_row(self):
@@ -309,7 +310,7 @@ class Make(Base):
         sigmake.detect_bars = SimpleNamespace(
             analyse=lambda path, **kw: {"status": "too static", "height": 1, "middle": 0},
             POINTS=6, PER_POINT=12, THRESHOLD=5.0, MIN_FRACTION=0.02,
-            DETECTOR_VERSION="1")
+            DETECTOR_VERSION="1", detector_id=lambda mode: "1")
         try:
             made = self.make(self.a_video(), crop_bars=True, detector="1")
         finally:

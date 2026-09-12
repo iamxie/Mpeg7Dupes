@@ -128,7 +128,8 @@ def bars_lines(match: dict) -> str:
     for whose, side in (("yours", "source"), ("theirs", "candidate")):
         crop = match.get(side + "_crop", "")
         state = match.get(side + "_crop_state", "detected" if crop else "unknown")
-        description = crop_description({"crop": crop, "crop_state": state})
+        description = crop_description({"crop": crop, "crop_state": state,
+                                        "crop_mode": match.get(side + "_crop_mode")})
         lines.append(f'<li>Bars on {whose}: {html.escape(description.removeprefix("Bars: "))}</li>')
     return "".join(lines)
 
@@ -260,6 +261,7 @@ def render(record: dict, missing: list[str], media_paths: dict | None = None) ->
             crop = video.get("crop", match.get(side + "_crop", ""))
             match[side + "_crop"] = crop
             match[side + "_crop_state"] = video.get("crop_state", "detected" if crop else "unknown")
+            match[side + "_crop_mode"] = video.get("crop_mode", "unknown")
             if media_paths:
                 match[side + "_media"] = media_paths[match[side + "_path"]]
         matches.append(match)
@@ -327,7 +329,7 @@ def render(record: dict, missing: list[str], media_paths: dict | None = None) ->
       <dt>Report threshold</dt>
         <dd>{settings["min_coverage"]:.0f}% of the source</dd>
       <dt>Bar cropping</dt>
-        <dd>{"on" if settings["crop_bars"] else "off"}</dd>
+        <dd>{html.escape(settings.get("crop_mode", "motion") + " mode") if settings["crop_bars"] else "off"}</dd>
       <dt>Coarse filter</dt><dd>{"off, -d 10001" if settings.get("coarse_filter") is False else "on"}</dd>
       <dt>Comparison built</dt><dd>{html.escape(tool)}</dd>
       <dt>Comparison arguments</dt><dd><code>{flags}</code></dd>

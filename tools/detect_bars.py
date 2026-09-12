@@ -9,6 +9,14 @@ detect_bars.py
 Reports whether a video has bars added along its top and bottom, and where the
 real picture starts and ends.
 
+Motion is the default; the explanation and historical measurements below
+describe that mode. --mode black explicitly selects ffmpeg cropdetect on
+full-range grey, retaining the union of visible picture across sampled
+windows. It can find plain near-black bars on still footage; lettering stops
+it, dark picture edges can fool it, and all-dark samples remain uncertain.
+It never replaces motion automatically. BLACK_VERSION is independent of
+DETECTOR_VERSION, so adding or changing black does not retire motion caches.
+
 Bars matter here because of what they do to a comparison. They are usually the
 same 140 or so pixels of black in every video that carries them, which is a
 fifth of the frame, so two unrelated videos that both have bars agree on a fifth
@@ -149,6 +157,7 @@ Usage
 import argparse
 import json
 import math
+import re
 import statistics
 import subprocess
 import sys
@@ -203,6 +212,67 @@ MIN_FRACTION = 0.02
 # 3: select v:0 and use its autorotated height; sampling failures are errors.
 # Thresholds and motion classification are unchanged.
 DETECTOR_VERSION = "3"
+# Opt-in colour detection has an independent identity; motion caches stay valid.
+BLACK_VERSION = "1"
+BLACK_LIMIT = 16 / 255  # Full-range grey; tolerate near-black compression noise.
+
+
+def detector_id(mode="motion"):
+    if mode == "motion":
+        return DETECTOR_VERSION
+    if mode == "black":
+        return "black-" + BLACK_VERSION
+    raise ValueError("crop_mode must be motion or black")
+
+
+def black_bounds(path, height, duration, points, per_point, min_fraction, ffmpeg):
+    """Union of visible picture bounds in all sampled windows.
+
+    Use ffmpeg's colour detector at full resolution, on full-range grey, with
+    no tolerated bright outliers. Text stops a crop. A window can enlarge the
+    retained picture but never remove picture found in another window.
+    """
+    bounds, sampled = [], False
+    for i in range(points):
+        at = duration * (0.1 + 0.8 * i / max(1, points - 1))
+        # Decoders can feed an extra frame through filters before -frames:v
+        # stops the output. Trim first so metadata describes exactly our sample.
+        chain = (f"trim=end_frame={per_point},format=gray,cropdetect=limit={BLACK_LIMIT:.17g}:round=2:"
+                 "reset=0:skip=0:max_outliers=0,metadata=mode=print:file=-")
+        done = run_tool([ffmpeg, "-nostdin", "-v", "error", "-ss", f"{at:.2f}",
+            "-i", str(path), "-map", "0:v:0", "-an", "-vf", chain,
+            "-frames:v", str(per_point), "-progress", "pipe:1", "-f", "null", "-"],
+            capture_output=True)
+        if done.returncode:
+            raise RuntimeError(f"ffmpeg sampling failed ({done.returncode}): "
+                               + done.stderr.decode(errors="replace").strip()[:200])
+        text = done.stdout.decode(errors="replace")
+        counts = re.findall(r"^frame=(\d+)\s*$", text, re.M)
+        tops = re.findall(r"^lavfi\.cropdetect\.y1=(-?\d+)\s*$", text, re.M)
+        ends = re.findall(r"^lavfi\.cropdetect\.y2=(-?\d+)\s*$", text, re.M)
+        if not counts or len(tops) != int(counts[-1]) or len(ends) != len(tops):
+            raise RuntimeError("ffmpeg returned incomplete cropdetect metadata")
+        if len(tops) < MIN_WINDOW:
+            continue
+        sampled = True
+        for top, end in zip(map(int, tops), map(int, ends)):
+            if 0 <= top <= end < height:
+                bounds.append((top, end))
+    if not sampled:
+        return {"status": "too short", "height": height}
+    if not bounds:
+        return {"status": "too dark", "height": height}
+    top = min(t for t, _ in bounds)
+    bottom = height - 1 - max(e for _, e in bounds)
+    if max(top, bottom) >= height * MAX_BAR_FRACTION:
+        return {"status": "ambiguous", "height": height}
+    # Keep any boundary rounding on the bar side of the detected picture.
+    top, bottom = top // 2 * 2, bottom // 2 * 2
+    if (top + bottom) / height < min_fraction:
+        top = bottom = 0
+    return {"status": "ok", "height": height, "top": top, "bottom": bottom,
+            "picture_height": height - top - bottom,
+            "bar_fraction": (top + bottom) / height}
 
 
 def probe(path, ffprobe="ffprobe"):
@@ -290,18 +360,22 @@ def edge(picture, reverse):
 
 
 def analyse(path, points, per_point, threshold, min_fraction,
-            ffmpeg="ffmpeg", ffprobe="ffprobe"):
+            ffmpeg="ffmpeg", ffprobe="ffprobe", *, mode="motion"):
     """One video. 'status' says whether the rest of the result means anything.
 
     ffmpeg and ffprobe are the programs to run, so a caller that was told
     which ones to use can pass that on; the defaults are whatever PATH has.
     """
+    detector_id(mode)
     info = probe(path, ffprobe)
     if not info:
         return {"path": str(path), "status": "unreadable"}
     height, duration = info
 
     try:
+        if mode == "black":
+            result = black_bounds(path, height, duration, points, per_point, min_fraction, ffmpeg)
+            return {"path": str(path), **result}
         profiles = movement(path, height, duration, points, per_point, ffmpeg)
     except ToolError:
         raise
@@ -340,6 +414,8 @@ def main():
     p = argparse.ArgumentParser(
         description="Detect bars added to the top and bottom of a video")
     p.add_argument("videos", nargs="+", type=Path)
+    p.add_argument("--mode", choices=("motion", "black"), default="motion",
+                   help="motion (default), or explicitly detect plain black bars by colour")
     p.add_argument("--csv", action="store_true",
                    help="one row per video instead of a report")
     p.add_argument("--points", type=int, default=POINTS, metavar="N",
@@ -347,7 +423,7 @@ def main():
     p.add_argument("--frames", type=int, default=PER_POINT, metavar="N",
                    help=f"frames to take at each place (default {PER_POINT})")
     p.add_argument("--threshold", type=float, default=THRESHOLD, metavar="F",
-                   help=f"movement above which a row is picture "
+                   help=f"motion mode only: movement above which a row is picture "
                         f"(default {THRESHOLD})")
     p.add_argument("--min-fraction", type=float, default=MIN_FRACTION, metavar="F",
                    help=f"bars thinner than this fraction of the height are "
@@ -356,6 +432,15 @@ def main():
     p.add_argument("--ffmpeg", default="ffmpeg", metavar="PATH")
     p.add_argument("--ffprobe", default="ffprobe", metavar="PATH")
     args = p.parse_args()
+    if args.points < 1 or args.frames < MIN_WINDOW:
+        p.error(f"--points must be positive and --frames must be at least {MIN_WINDOW}")
+    if not math.isfinite(args.threshold) or args.threshold < 0:
+        p.error("--threshold must be finite and nonnegative")
+    if not math.isfinite(args.min_fraction) or not 0 <= args.min_fraction <= 1:
+        p.error("--min-fraction must be finite and between 0 and 1")
+    if args.mode == "black":
+        print(f"black mode (detector {detector_id('black')}): dark picture edges can be "
+              "cropped and lettering can leave bars behind; review the crop.", file=sys.stderr)
 
     if args.csv:
         print("file,status,height,top,bottom,picture_height,bar_percent,crop")
@@ -365,7 +450,7 @@ def main():
         try:
             r = analyse(path, args.points, args.frames,
                         args.threshold, args.min_fraction,
-                        ffmpeg=args.ffmpeg, ffprobe=args.ffprobe)
+                        ffmpeg=args.ffmpeg, ffprobe=args.ffprobe, mode=args.mode)
         except ToolError as exc:
             r = {"path": str(path), "status": "failed", "reason": str(exc)}
         name = Path(r["path"]).name
@@ -394,6 +479,9 @@ def main():
         elif r["status"] == "too static":
             print(f"{name}: too static to tell, the middle of the frame moves "
                   f"{r['middle']:.1f} and a bar would move 0")
+            worst = max(worst, 2)
+        elif r["status"] in ("too dark", "ambiguous"):
+            print(f"{name}: {r['status']} to distinguish black bars from picture; not cropped")
             worst = max(worst, 2)
         elif not r["bar_fraction"]:
             print(f"{name}: no bars, all {r['height']} rows are picture")

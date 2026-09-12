@@ -3,6 +3,8 @@ import math
 
 
 def validate(settings):
+    if settings.get('crop_mode', 'motion') not in ('motion', 'black'):
+        raise ValueError('crop_mode must be motion or black')
     for key in ('fps', 'min_coverage'):
         if key not in settings:
             continue

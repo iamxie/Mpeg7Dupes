@@ -997,6 +997,15 @@ declined, and the night sky's clip above.
 
 ## Reproducing
 
+The optional `--crop-mode black` added after P2 uses a separate `black-1`
+identity; motion remains version 3 and remains the default. Its development
+checks in `tests/black_video.py` generate near-black bars on still textured
+footage, dark/all-black negatives, fades, lettering and time-limited bars.
+A real cold/hot scan finds the generated barred copy and retains its crop
+decision and warning in JSON/HTML. This is a reproducible development check,
+not a remeasurement of the deleted slide original or new independent accuracy
+evidence; all earlier dataset figures retain their original detector version.
+
 Build 12 adds candidate-level scheduling for a single incremental source.
 On Linux aarch64 (GCC 12, eight visible cores), one retained five-minute
 source against the other 47 five-minute signatures, at `-b 0.1 -d 9000
@@ -1020,7 +1029,8 @@ What is in this repository and needs nothing private:
   and 5 fps, against the recorded `compare-longest.csv` output;
   `tests/README.md` has the fixtures and what each pins.
 - `make smoke` takes three synthetic clips from video to result through
-  `tools/find_reuse.py` twice, with the real ffmpeg.
+  `tools/find_reuse.py` twice, with the real ffmpeg, and runs the short/geometry
+  and black-mode video regressions described in `tests/README.md`.
 - The scenario table above: every clip is `ffmpeg -f lavfi -i <source>` with
   the sources named, `concat` for the joins, `pad=320:240:0:30:black` for the
   bars, `scale=240:136` for the re-encode, then `-vf fps=5,signature=...`.

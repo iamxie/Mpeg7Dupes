@@ -33,8 +33,10 @@ describe one match two ways.
 #    some earlier comparisons completed. The renderer still accepts schema 3.
 # 5: explicit scan path base, reproducibility metadata and per-video warnings.
 #    Match measurements and threshold membership are unchanged.
-SCHEMA = "find_reuse/5"
-READABLE_SCHEMAS = ("find_reuse/3", "find_reuse/4", SCHEMA)
+# 6: explicit effective crop mode, independently keyed black detector and
+#    colour-cropping warnings. Existing match measurements are unchanged.
+SCHEMA = "find_reuse/6"
+READABLE_SCHEMAS = ("find_reuse/3", "find_reuse/4", "find_reuse/5", SCHEMA)
 
 # Exit status of find_reuse.py. Fixed here and in --help, tested in
 # tests/unit/test_find_reuse.py.
@@ -85,9 +87,12 @@ LIMITS = {
     "short_source": "Sources shorter than about two minutes have produced false "
                     "matches on simple light/dark layouts. This is a risk "
                     "warning, not a classifier; longer sources are not guaranteed safe.",
-    "crop_uncertain": "When motion-based cropping is uncertain (for example, "
-                      "a static scene or too few samples), the signature is "
+    "crop_uncertain": "When cropping is uncertain (for example, a static scene "
+                      "in motion mode, darkness in black mode, or too few samples), the signature is "
                       "uncropped and barred copies may be missed.",
+    "black_crop": "The optional black mode detects colour, not the meaning of a border. "
+                  "Dark picture edges can be cropped; lettering can leave bars behind. "
+                  "Only sampled windows are checked. Review the crop before trusting a match or miss.",
     "reframe": "A horizontal-to-vertical reframe or other substantial content "
                "crop is not reliably supported. Video orientation alone does "
                "not identify this transformation.",
@@ -108,6 +113,8 @@ def crop_description(video: dict) -> str:
         label += ", cropped before comparing, " + video["crop"]
     if state == "uncertain":
         label += "; fingerprinted uncropped, barred copies may be missed"
+    if video.get("crop_mode") in ("motion", "black"):
+        label += "; " + video["crop_mode"] + " mode"
     return "Bars: " + label
 
 
@@ -122,6 +129,8 @@ def video_warnings(video: dict, role: str) -> list[dict]:
         codes.append("short_source")
     if video.get("crop_state") == "uncertain":
         codes.append("crop_uncertain")
+    if video.get("crop_mode") == "black":
+        codes.append("black_crop")
     return [{"code": code, "message": LIMITS[code]} for code in codes]
 
 

@@ -38,9 +38,9 @@ ffprobe and, for the Python tools, mpeg7dupes itself, so that the cache, the
 failure paths and the shape of the data crossing between modules are tested
 without decoding anything.
 
-**Real-tool integration** (`smoke.sh`, `video_io.py`) is deliberately small: three
+**Real-tool integration** (`smoke.sh`, `video_io.py`, `black_video.py`) uses generated
 synthetic clips through ffmpeg, the store and the binary via
-`tools/find_reuse.py`, twice. It is the only place the real pipeline runs,
+`tools/find_reuse.py`, twice. This layer runs the real pipeline,
 and what it catches is wiring: the signature format drifting, a filter
 argument ffmpeg no longer accepts, the cache failing to recognise its own
 files. Input checks also cover real single-frame, two-frame and short signatures, selection of the
@@ -59,6 +59,14 @@ metadata, all crop states, incomplete-result wording and media links when the
 HTML is written outside the scan directory. These run under `make test`, also
 with AddressSanitizer for the C path; timings are measured separately, not
 asserted as CI speed thresholds.
+
+`unit/test_black_mode.py` protects opt-in mode selection, cache separation,
+unchanged motion cache identity, disabled semantics, and cropdetect failures.
+`black_video.py`, under `make smoke`, generates still textured footage with
+near-black compressed bars, dark and all-black negatives, fades, lettering
+and bars present for only part of the video. It also runs a cold/hot black
+scan through the real binary and checks the JSON and HTML mode and warnings.
+These are development regressions, not independent accuracy measurements.
 
 ## Tests that used to pin a known limitation
 
@@ -84,14 +92,14 @@ and let the recorded copy change with it.
 
 ## The suites
 
-`run.sh` compares the six fixtures against each other in both modes and
+`run.sh` compares the six fixtures against each other in `longest` mode and
 checks the result two ways. Named checks say what a given number means, so a
 failure names the property that broke: that a re-encode covers the whole
 clip, that an extract is found end to end, that the endpoints locate the
 extract inside a longer clip, that the two clips sharing content inside both
 files are scored as a real match rather than noise, and that `unrelated`
-stays under the noise floor. The recorded copies catch everything the named
-checks do not think to ask about. `UPDATE=1` rewrites them; do that only when
+stays under the noise floor. The recorded copy catches everything the named
+checks do not think to ask about. `UPDATE=1` rewrites it; do that only when
 the change is understood.
 
 `ledger.sh` covers `-s`. Its failure mode is silent: a pair wrongly skipped

@@ -125,7 +125,7 @@ def probe_duration(ffprobe: str, path: Path) -> float:
 
 
 def decide_crop(path: Path, crop_bars: bool, ffmpeg: str,
-                ffprobe: str) -> CropDecision:
+                ffprobe: str, *, crop_mode: str = "motion") -> CropDecision:
     """What to crop off this video, and how sure that is.
 
     The detector's constants are its own, not arguments here: two callers
@@ -141,7 +141,7 @@ def decide_crop(path: Path, crop_bars: bool, ffmpeg: str,
             path, points=detect_bars.POINTS, per_point=detect_bars.PER_POINT,
             threshold=detect_bars.THRESHOLD,
             min_fraction=detect_bars.MIN_FRACTION,
-            ffmpeg=ffmpeg, ffprobe=ffprobe)
+            ffmpeg=ffmpeg, ffprobe=ffprobe, mode=crop_mode)
     except ToolError:
         raise
     except Exception as exc:                      # noqa: BLE001
@@ -151,7 +151,7 @@ def decide_crop(path: Path, crop_bars: bool, ffmpeg: str,
         return CropDecision("failed", detail=found.get("reason", "sampling failed"))
     if status == "unreadable":
         return CropDecision("failed", detail="ffprobe cannot read the file")
-    if status in ("too short", "too static"):
+    if status in ("too short", "too static", "too dark", "ambiguous"):
         return CropDecision("uncertain", detail=status)
     if status != "ok":
         return CropDecision("failed", detail=f"bar detector said {status!r}")
@@ -208,13 +208,15 @@ def produce(src: Path, sig_dir: Path, filename: str, crop: str, fps: float,
 
 def build(src: Path, sig_dir: Path, *, content_hash: str, fps: float,
           crop_bars: bool, detector: str, ffmpeg: str, ffprobe: str,
-          hwaccel: str = "", before=None) -> Built:
+          hwaccel: str = "", before=None, crop_mode: str = "motion") -> Built:
     """Everything that does not touch the index, so a caller may run it on a
     worker thread: probe, decide about bars, produce, read the count back."""
     before = before or src.stat()
     sigstore.check_unchanged(src, before)
     duration = probe_duration(ffprobe, src)
-    decision = decide_crop(src, crop_bars, ffmpeg, ffprobe)
+    if crop_bars and detect_bars is not None and detector != detect_bars.detector_id(crop_mode):
+        raise ValueError("detector identity does not match crop_mode")
+    decision = decide_crop(src, crop_bars, ffmpeg, ffprobe, crop_mode=crop_mode)
     if decision.state == "failed":
         raise SignatureError(f"bar detection failed, {decision.detail}")
     filename = sigstore.sig_filename(content_hash, fps, crop_bars, detector)
@@ -252,7 +254,8 @@ def lookup(con, sig_dir: Path, content_hash: str, *, fps: float,
 
 def make(src: Path, con, sig_dir: Path, *, fps: float, crop_bars: bool,
          detector: str, ffmpeg: str, ffprobe: str, ffmpeg_version: str,
-         hwaccel: str = "", overwrite: bool = False, identified=None) -> Signature:
+         hwaccel: str = "", overwrite: bool = False, identified=None,
+         crop_mode: str = "motion") -> Signature:
     """The whole flow for one video on the calling thread: identify it, reuse
     the store's signature if there is one, otherwise make and record one.
 
@@ -260,6 +263,8 @@ def make(src: Path, con, sig_dir: Path, *, fps: float, crop_bars: bool,
     changes underfoot, and SignatureError when it cannot be fingerprinted.
     """
     sigstore.fps_tag(fps)  # Reject unusable cache keys before touching the store.
+    if crop_bars and detect_bars is not None and detector != detect_bars.detector_id(crop_mode):
+        raise ValueError("detector identity does not match crop_mode")
     if con.in_transaction:
         raise ValueError("make requires a connection without an open transaction")
     if identified is not None:
@@ -280,7 +285,7 @@ def make(src: Path, con, sig_dir: Path, *, fps: float, crop_bars: bool,
                 return found
         built = build(src, sig_dir, content_hash=content_hash, fps=fps,
                       crop_bars=crop_bars, detector=detector, ffmpeg=ffmpeg,
-                      ffprobe=ffprobe, hwaccel=hwaccel, before=stat)
+                      ffprobe=ffprobe, hwaccel=hwaccel, before=stat, crop_mode=crop_mode)
         try:
             sigstore.check_unchanged(src, stat)
             con.execute("BEGIN IMMEDIATE")

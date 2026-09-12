@@ -88,6 +88,9 @@ min_coverage = 40.0
 # height in 95 of 96, worst error one row. Where it cannot tell, a video too
 # still for anything to move, it crops nothing. See tools/detect_bars.py.
 crop_bars = true
+# Optional colour detection for plain black bars on still footage. Never automatic.
+# motion keeps the existing cache; black uses its own detector identity.
+crop_mode = "motion"
 
 # Let mpeg7dupes' coarse filter skip a pair of segments before the frame by
 # frame walk, which it does when three of their five coarse words share a
