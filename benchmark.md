@@ -1216,6 +1216,55 @@ rule, and a sweep over `-x` in `longest` with `-i 0 -b 0.1 -k 1`; each run
 should record the build that produced it, read from the run's own log, and
 the digests of its inputs, which `-s` writes into the ledger for you.
 
+## Two-pass analysis development regression
+
+The scanner's `visual-1` profile measures sampled SDR darkness, low change and
+contrast, then explains each match's reported spans. It does not change match
+selection, coverage, crop choice or review-only fallback decisions. The rules
+were set before this regression and were not tuned against its outcomes.
+Machine-readable results are in
+[the analysis summary](benchmarks/two-pass-2026-09-16-summary.json).
+
+The already-seen third-set footage remains development data: 107 videos,
+32 source queries × 75 candidates = 2,400 Q2 pairs. The run cloned the prior
+full/fixed5 signature generations and index, verified input/signature hashes,
+and scanned with the same full-frame plus crop-fallback settings and build 12.
+All original fields of the 222 hits, candidate/source statuses, misses and the
+full fallback audit were exactly unchanged. All 107 profiles completed, and
+all 222 reported spans had available analysis. Thirteen videos needed a
+recorded range and/or transfer assumption.
+
+Whole-video dominant categories were 94 neither, 6 low-change, 3 dark and 4
+both. “Neither” means neither property occupied at least 80% of measured time;
+it does not mean no risk or no difficult intervals. The Zion original was
+low-change, and Stars was both dark and low-change. Dock and Slides still
+showed substantial low-change fractions (63% and 72%) without reaching that
+whole-video dominant flag. The HTML exposes those fractions and intervals.
+
+Of 210 coverage-true hits, 6 received a new visual-review recommendation;
+3 carried content notes and all 6 position notes. All six already had aligned
+positions under the retained ground truth; the notes identify a potential
+limitation, not an observed error. **None of the 12 known
+false hits received these new notes**, including the 8 false additions from
+crop fallback. Their pre-existing short-source and/or fallback warnings
+remain. These results do not justify using profile flags as a false-match
+filter or presenting an unflagged result as reliable. Simple spatial layouts
+can confuse signatures without satisfying a predominantly-dark or low-change
+rule, and flagged true matches may still need position checks.
+
+On the same Linux Docker environment, one scan with warm signatures and cold
+profiles took 114.73 s, including serial profile extraction and comparison.
+A subsequent lookup of all 107 cached profiles took 0.12 s, with nonexistent
+decoder/probe paths proving those programs were not needed. These timings
+cover different work and are not a speedup ratio; fingerprinting from scratch
+was excluded. Shared decoding is not implemented.
+
+`make test`, `make smoke` and the workspace producer regression passed.
+Generated fixtures cover independent property combinations, mixed time
+regions, limited/full range equivalence, high-bit-depth SDR, unsupported HDR,
+unchanged match decisions and cache/failure behavior. They establish wiring
+and semantics, not general detection accuracy.
+
 ## What this does not tell you
 
 - **One corpus, six sources, and the settings were tuned on it.** The

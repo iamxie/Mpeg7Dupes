@@ -96,6 +96,11 @@ crop_mode = "motion"
 # crop_bars = false. Only below-threshold pairs are retried; new hits need review.
 crop_fallback = false
 
+# Pass 1 caches sampled SDR darkness/change intervals; pass 2 explains actual
+# matched spans. Does not change hits, positions or thresholds. Cold runs decode
+# each video again; warm runs reuse profiles. --no-analysis skips this stage.
+analyze = true
+
 # Let mpeg7dupes' coarse filter skip a pair of segments before the frame by
 # frame walk, which it does when three of their five coarse words share a
 # tenth or less.

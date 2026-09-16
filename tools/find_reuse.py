@@ -120,6 +120,7 @@ except ImportError:
 import sigstore  # noqa: E402
 from tool_settings import validate
 import sigmake  # noqa: E402
+import video_profile
 from reuse_record import (  # noqa: E402
     SCHEMA, EXIT_COMPLETE, EXIT_INCOMPLETE, EXIT_UNUSABLE, PROCESSED, FAILED,
     SKIPPED, MATCHED, NEEDS_REVIEW, CHECKED, NOT_COMPARED, LIMITS, as_clock, where_of)
@@ -140,6 +141,7 @@ DEFAULTS = {
     "crop_bars": True,
     "crop_mode": "motion",
     "crop_fallback": False,
+    "analyze": True,
     # Let mpeg7dupes' coarse filter skip pairs of segments that cannot match.
     # On the tuning corpus it lost nothing and took two thirds off the
     # comparison time; --no-coarse-filter passes -d 10001 so a run can check
@@ -205,6 +207,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--crop-fallback", action="store_true", default=None,
                    help="Retry below-threshold full-frame pairs with fixed 5%% top/bottom cross views. "
                         "Requires --no-crop-bars; added matches need review.")
+    analysis = p.add_mutually_exclusive_group()
+    analysis.add_argument("--analyze", action="store_true", default=None,
+                          help="Analyze sampled darkness and visual change (default on); explain matches without changing decisions.")
+    analysis.add_argument("--no-analysis", dest="analyze", action="store_false", default=None,
+                          help="Skip visual-property analysis; preserve the original matching workflow.")
     p.add_argument("--no-coarse-filter", dest="coarse_filter",
                    action="store_false", default=None,
                    help="Pass -d 10001 to mpeg7dupes, which turns off the "
@@ -220,7 +227,7 @@ def build_parser() -> argparse.ArgumentParser:
                         "built on the results should read the JSON instead of "
                         "parsing them. See tools/render_report.py.")
     p.add_argument("--overwrite", action="store_true", default=None,
-                   help="Recompute signatures that already exist.")
+                   help="Recompute signatures and enabled analysis that already exist.")
     p.add_argument("--config", metavar="FILE", help="toml settings file.")
     p.add_argument("--ffmpeg", metavar="PATH", help="Path to ffmpeg.")
     p.add_argument("--ffprobe", metavar="PATH", help="Path to ffprobe.")
@@ -352,6 +359,7 @@ def video_list(entries: dict, paths: dict, fps: float) -> list[dict]:
                          "content_hash": entry.get("hash"),
                          "content_hash_algorithm": "blake2b-128",
                          "signature": entry.get("signature", {}),
+                         "analysis": video_profile.public(entry.get("_profile", {"status": "unavailable"})),
                          **({"crop_fallback": entry["crop_fallback"]} if "crop_fallback" in entry else {}),
                          # What the bar detector concluded: disabled,
                          # detected, none or uncertain. A record from before
@@ -402,6 +410,8 @@ def tool_identity(settings: dict) -> dict:
     return {"mpeg7dupes": tool_version(str(binary)),
             "binary_path": str(binary), "binary_sha256": sha256_file(binary),
             "python": sys.version,
+            "analysis": {"version": video_profile.VERSION, "recipe_id": video_profile.RECIPE_ID,
+                         "sha256": sha256_file(Path(video_profile.__file__))},
             "scanner_sha256": sha256_file(Path(__file__)),
             "signature_producer_sha256": sha256_file(Path(sigmake.__file__)),
             "detector": {"version": detect_bars.detector_id(settings.get("crop_mode", "motion")) if detect_bars and settings["crop_bars"] else None,
@@ -461,6 +471,7 @@ def build_record(settings: dict, sources: list[dict], candidates: list[dict],
                      "mode": "longest", "min_coverage": settings["min_coverage"],
                      "crop_bars": settings["crop_bars"],
                      "crop_fallback": settings.get("crop_fallback", False),
+                     "analyze": settings.get("analyze", True),
                      "crop_mode": settings.get("crop_mode", "motion") if settings["crop_bars"] else "disabled",
                      "coarse_filter": settings["coarse_filter"],
                      "comparison_args": comparison_args(settings),
@@ -748,6 +759,25 @@ def scan(args, settings, sources, requested) -> int:
         print(f"  {duplicates} of them are byte-for-byte copies of another, so "
               f"{len(shown)} signatures cover all {signed}")
 
+    # Pass 1 measures each original video, independently of its signature views.
+    # Analysis failures must not erase a valid signature or prevent comparison.
+    analysis_failures = []
+    for inventory, paths in ((source_entries, source_paths), (entries, shown)):
+        for key, entry in inventory.items():
+            if not settings["analyze"]:
+                entry["_profile"] = {"status": "disabled"}
+                continue
+            path = paths[key][0]
+            try:
+                entry["_profile"] = video_profile.make(
+                    Path(path), con, sig_dir, content_hash=entry["hash"],
+                    ffmpeg=settings["ffmpeg"], ffprobe=settings["ffprobe"],
+                    ffmpeg_version=ffmpeg_ver, overwrite=settings["overwrite"])
+            except (video_profile.ProfileError, sigmake.ToolError, OSError, sqlite3.Error) as exc:
+                entry["_profile"] = {"status": "failed", "reason": str(exc)}
+                analysis_failures.extend({"path": p, "reason": str(exc)} for p in paths[key])
+            print(f"  analysis {path}: {video_profile.describe(entry['_profile'])}", flush=True)
+
     results, completed = {}, []
     error = None
     if source_entries and entries:
@@ -841,6 +871,9 @@ def scan(args, settings, sources, requested) -> int:
                         f"{frames} frames matched, but the shorter of the two "
                         f"videos has only {ceiling}" if overrun else ""),
                 })
+                # Pass 2 uses both reported spans, including the final signature frame.
+                hits[-1]["assessment"] = video_profile.assess(
+                    hits[-1], source_entry["_profile"], entries[name]["_profile"])
 
     # Sorted by source first, because the question being asked is which of my
     # clips were taken, not what is inside each of their videos.
@@ -848,6 +881,9 @@ def scan(args, settings, sources, requested) -> int:
     print()
     for hit in hits:
         print(f"{hit['candidate_path']}   used {hit['source']}, {where_of(hit)}")
+        for group in ("content_notes", "position_notes"):
+            for note in hit["assessment"][group]:
+                print(f"  {group.removesuffix('_notes')}: {note}")
     if hits:
         print(f"  note     {LIMITS['endpoints']}", file=sys.stderr)
     print(f"  note     {LIMITS['reframe']}", file=sys.stderr)
@@ -914,10 +950,22 @@ def scan(args, settings, sources, requested) -> int:
     for row in candidate_rows:
         if row["status"] == NOT_COMPARED:
             print(f"{row['path']}   not compared: {row['reason']}")
+    comparison_record_complete = summary["complete"]
+    if analysis_failures:
+        summary["complete"] = False
+        if summary["exit_status"] == EXIT_COMPLETE:
+            summary["exit_status"] = EXIT_INCOMPLETE
+        print(f"Analysis incomplete: {len(analysis_failures)} file(s); comparison results retained.", file=sys.stderr)
+    summary["analysis_failed"] = len(analysis_failures)
     if args.json:
         record = build_record(settings, source_rows, candidate_rows, hits,
                               misses, summary)
-        record["comparison"] = {"complete": summary["complete"], "sources_completed": compared_paths}
+        record["comparison"] = {"complete": comparison_record_complete, "sources_completed": compared_paths}
+        record["analysis"] = {"enabled": settings["analyze"],
+                              "complete": not analysis_failures and not failures and bool(source_entries and entries),
+                              "failures": analysis_failures,
+                              "unsupported": sum(v.get("analysis", {}).get("status") == "unsupported"
+                                                 for v in source_rows + candidate_rows)}
         if settings.get("crop_fallback"):
             record["fallback"] = fallback
             record["comparison"]["full_frame_sources_completed"] = [
@@ -957,6 +1005,8 @@ def main() -> int:
             record["summary"].update(complete=False, exit_status=EXIT_UNUSABLE)
             record["error"] = {"stage": "tools" if isinstance(exc, sigmake.ToolError) else "prepare", "reason": str(exc)}
             record["comparison"] = {"complete": False, "sources_completed": []}
+            record["analysis"] = {"enabled": settings.get("analyze", True), "complete": False,
+                                  "reason": "scan failed before analysis completed"}
             try:
                 write_record(args.json, record)
             except OSError as write_error:

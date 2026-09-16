@@ -151,6 +151,77 @@ against every candidate and never against each other. `--json` keeps the
 whole run, and `tools/render_report.py` turns that file into a page that
 plays the two videos side by side, parked just before the join.
 
+### Two-pass visual analysis
+
+The scanner now analyzes each original video before comparison, then explains
+both reported match spans. This is on by default; use `--no-analysis` or
+`analyze = false` in TOML to skip it, and `--analyze` to override that setting.
+It adds context without changing signatures, thresholds, hits, misses, crops,
+speed ranking, or the existing crop-fallback `requires_review` decision.
+
+Pass 1 samples the entire first video stream at 2 fps. FFmpeg normalizes SDR
+luma to 8-bit full range on a 160×90 grid and measures both the whole frame
+and its central 80% in each dimension. The centre drives the descriptive
+flags; the whole frame provides border context. This centre is a fixed region
+of the original, not an inferred bar crop or a signature-specific view.
+
+| Property | Initial descriptive rule |
+| --- | --- |
+| Dark sample | Mean luma ≤48 and 90th percentile luma ≤80 on the 0–255 scale |
+| Low-change interval | Mean absolute luma difference between adjacent sampled frames ≤2, sustained for at least 2 seconds |
+| Low contrast | 90th minus 10th percentile luma ≤24 |
+| Dominant property | At least 80% of the observed time satisfies the rule |
+
+Darkness and low change are independent: a video can have either, both, or
+neither. JSON retains ratios, average luma, average change, the proportion of
+pixels below luma 32, and half-open time intervals. The first sample has no
+previous frame and is excluded from the motion denominator. Shorter changes
+and small or periodic movement can be missed; these are sampled estimates,
+not a detector of exact freezes or semantic detail. The rules are provisional,
+not calibrated probabilities. A dark scene does not establish underexposure.
+
+Pass 2 measures the actual source and candidate spans separately. A dark
+opening does not imply a dark match later in the video. Content notes request
+checking visible details; low-change notes request verifying start/end
+positions. Both properties together recommend priority review. Overruns,
+insufficient observations and unavailable profiles stay explicit. The
+inclusive final signature frame is included in each span using `1 / fps`.
+The HTML shows these notes and time proportions, and its video inventory
+shows whole-video summaries and intervals even when nothing matched. None
+of these proportions is match confidence; an unflagged match is not verified.
+
+Explicit full/limited range tags take precedence. Without them, YUV is assumed
+limited except full-range pixel formats; RGB/gray are assumed full. Missing
+transfer tags are treated as SDR and recorded as an assumption. Tagged HDR
+and other unsupported transfer functions get `unsupported` rather than a
+brightness judgement. This is an acknowledged unsupported result, not a
+failed decode. Incorrect or missing colour tags can still invalidate the
+interpretation. Thick borders and picture content outside the centre also
+need manual inspection.
+
+`settings.analyze` records the choice; each video's `analysis` includes its
+status, recipe, original FFmpeg version, summaries, intervals and cached
+artifact SHA-256. `tool.analysis` identifies the current analysis code and
+recipe. Each hit has `assessment` with separate content/position notes and
+`review_recommended`; this does not change candidate status or
+`requires_review`. Legacy records are labelled as having no recorded analysis.
+Operational analysis failures preserve completed comparisons and matches,
+set `analysis.complete` and `summary.complete` false, and exit 1 unless a
+comparison/preparation failure requires exit 2. `comparison.complete` remains
+independent; an analysis failure is neither a miss nor evidence of normality.
+
+Cold analysis performs an additional full decode, without writing another
+video. Warm runs read cached measurements without decoding or probing video.
+The additive SQLite `profiles` table uses `(content hash, analysis recipe)`
+independently of signature fps/crop settings. It stores immutable JSON
+generations with per-key locks, checksums and short publication transactions;
+a failed overwrite preserves the prior generation. Raw samples live there,
+while scan records carry summaries/intervals and matched-span measurements.
+`--overwrite` regenerates enabled profiles as well as signatures. FFmpeg
+upgrades do not automatically invalidate either cache; recipe changes do.
+Shared decoding is future work. The development results and limitations are
+in [benchmark.md](benchmark.md#two-pass-analysis-development-regression).
+
 ### Optional fixed 5% crop fallback
 
 ```sh
@@ -252,14 +323,14 @@ reported, but the candidate's `comparison_complete` is false. Unfinished
 comparisons never become misses.
 
 Exit 0 means the requested scan completed, whether or not it found a match.
-Exit 1 means some file processing failed but usable comparisons completed.
+Exit 1 means some file processing or enabled visual analysis failed but usable comparisons completed.
 Exit 2 means invalid settings or tools, no usable comparison, or a comparison
 failure. A later comparison failure preserves matches from earlier completed
 sources. Once the input inventory is collected, fatal errors also write a
 record when `--json` is supplied, so an earlier successful record is not left
 looking like this run. JSON is replaced atomically; a write failure leaves
-the previous file intact and reports exit 2. Records use `find_reuse/7`;
-`render_report.py` reads versions 3 through 7 and shows unfinished work.
+the previous file intact and reports exit 2. Records use `find_reuse/8`;
+`render_report.py` reads versions 3 through 8 and shows unfinished work.
 `summary.matches` includes review-only hits; `review_matches` counts that subset.
 A candidate with both normal and review-only hits is `matched`, while each
 pair retains its own `requires_review` flag.

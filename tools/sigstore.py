@@ -139,6 +139,14 @@ SIG_HEADER_BYTES = (SIG_HEADER_BITS + 7) // 8
 CROP_STATES = ("disabled", "detected", "none", "uncertain", "unknown", "fixed")
 
 SCHEMA = """
+-- Additive, independent analysis cache; existing signature keys keep meaning.
+CREATE TABLE IF NOT EXISTS profiles (
+    hash TEXT NOT NULL,
+    recipe TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    digest TEXT NOT NULL,
+    PRIMARY KEY (hash, recipe)
+);
 CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL

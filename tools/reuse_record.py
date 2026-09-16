@@ -37,8 +37,8 @@ describe one match two ways.
 #    colour-cropping warnings. Existing match measurements are unchanged.
 # 7: cross-view fallback, needs_review candidates, exact view provenance and
 #    per-pair fallback completion. Thresholds are unchanged.
-SCHEMA = "find_reuse/7"
-READABLE_SCHEMAS = ("find_reuse/3", "find_reuse/4", "find_reuse/5", "find_reuse/6", SCHEMA)
+SCHEMA = "find_reuse/8"
+READABLE_SCHEMAS = ("find_reuse/3", "find_reuse/4", "find_reuse/5", "find_reuse/6", "find_reuse/7", SCHEMA)
 
 # Exit status of find_reuse.py. Fixed here and in --help, tested in
 # tests/unit/test_find_reuse.py.
@@ -59,6 +59,10 @@ NOT_COMPARED = "not_compared"
 # What the record cannot say, stated in the record so a reader does not have
 # to know the tool to know the limits of its numbers.
 LIMITS = {
+    "visual_analysis": "Visual properties are sampled estimates, not match confidence or a diagnosis of underexposure. "
+                       "The central 80% of each original frame is measured at 2 fps, independently of signature crops. "
+                       "Low change can miss small or periodic movement; normal measurements do not prove a match. "
+                       "Thresholds are provisional descriptive rules. HDR is unsupported; missing colour tags require recorded assumptions.",
     "crop_fallback": "Optional fixed 5% top/bottom cross-view matches need review. "
                      "Removing picture content and trying more views can add false matches. "
                      "This is not bar detection or general spatial alignment. Both directions "

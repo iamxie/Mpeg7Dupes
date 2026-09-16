@@ -38,7 +38,7 @@ ffprobe and, for the Python tools, mpeg7dupes itself, so that the cache, the
 failure paths and the shape of the data crossing between modules are tested
 without decoding anything.
 
-**Real-tool integration** (`smoke.sh`, `video_io.py`, `black_video.py`, `crop_video.py`) uses generated
+**Real-tool integration** (`smoke.sh`, `video_io.py`, `black_video.py`, `crop_video.py`, `profile_video.py`) uses generated
 synthetic clips through ffmpeg, the store and the binary via
 `tools/find_reuse.py`, twice. This layer runs the real pipeline,
 and what it catches is wiring: the signature format drifting, a filter
@@ -75,6 +75,17 @@ were run failing before implementation. `crop_video.py` checks the actual
 1000×600 → 1000×540 filter, portrait rounding, autorotation, and recovery of a
 losslessly cropped static block image with identical retained pixels. These
 tests do not establish an accuracy rate on natural videos.
+
+`unit/test_video_profile.py` protects independent darkness/change flags,
+matched-span interpretation, unknown measurements, strict metadata parsing,
+cache corruption/rebuild, failed overwrites, source changes, recipe isolation,
+concurrent readers, and analysis failures that preserve comparisons. Legacy
+fake-signature tests explicitly disable analysis; the analysis tests exercise
+its failure path. `profile_video.py` uses real generated video for all four
+property combinations, mixed temporal regions, tagged limited/full range,
+SDR high bit depth, unsupported HDR, and unchanged matching decisions. The
+ordinary smoke cold/hot run also proves that cached profiles need no decoder
+or probe. These tests establish implementation behavior, not field accuracy.
 
 ## Tests that used to pin a known limitation
 

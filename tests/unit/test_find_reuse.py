@@ -49,6 +49,8 @@ class Run(unittest.TestCase):
         self.tmp.cleanup()
 
     def run_script(self, *extra, **env_over):
+        if '--analyze' not in extra and '--no-analysis' not in extra:
+            extra = ('--no-analysis', *extra)
         env = dict(self.env)
         env.update(env_over)
         cmd = [sys.executable, str(SCRIPT), "--source", str(self.src),
@@ -69,7 +71,7 @@ class Run(unittest.TestCase):
         done = self.run_script("--show-misses")
         self.assertEqual(done.returncode, 0, done.stderr)
         rec = self.record()
-        self.assertEqual(rec["schema"], "find_reuse/7")
+        self.assertEqual(rec["schema"], "find_reuse/8")
         self.assertEqual(sorted(self.statuses(rec).values()), ["checked", "matched"])
         self.assertEqual(self.statuses(rec, "sources"), {"mine.mp4": "processed"})
         s = rec["summary"]

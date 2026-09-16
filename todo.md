@@ -32,6 +32,21 @@ recovered misses, added false positives, and cost. Keep this opt-in and
 review-only unless those measurements justify a new decision. Additional crop
 amounts and shared-decode extraction need their own cost/benefit evidence.
 
+## Calibrate and extend visual-property explanations
+
+The scanner now caches sampled SDR darkness, low change and contrast, and
+explains the actual matched spans without modifying decisions. The initial
+rules are descriptive; previously seen third-set footage is development data.
+
+Done when: label fresh SDR clips and matched spans for visible movement,
+brightness and position ambiguity; evaluate nuisance warnings and missed
+risks separately. Validate small/periodic motion, fades, borders, uncertain
+colour tags and high bit depth. HDR needs an explicit, validated luminance
+interpretation before support. Measure shared-decode extraction against the
+current separate analysis decode while preserving signature bytes, cache
+identities and failure isolation. Any use of these properties to filter hits
+or choose crop modes requires a separate decision and independent evaluation.
+
 ## Speed-adjusted source coverage (low; separate behaviour change)
 
 `matchframes` counts walk steps; it is not a reliable count of source frames

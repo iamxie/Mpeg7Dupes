@@ -28,7 +28,7 @@ re-encoded. Missing files are named so blank players are explained.
 
 What the page deliberately does not say
 ---------------------------------------
-There is no percentage anywhere. The comparison over-reports how much of a
+Match coverage is not presented as an exact percentage. The comparison over-reports how much of a
 source was used, by however far the walk carries past each end of the shared
 region, so a figure like "88%" would be quoted back as exact when it is not.
 The page gives the two durations and the matched length instead and lets the
@@ -41,6 +41,7 @@ import html
 import json
 import os
 import sys
+import video_profile
 from pathlib import Path
 from urllib.parse import quote
 
@@ -159,8 +160,45 @@ def duration_cell(match: dict) -> str:
         f'<li>Their video <b>{as_clock(match["candidate_seconds"])}</b></li>'
         f'<li>Matched <b>{as_clock(matched)}</b> ({matched:.0f} s, '
         f'{match["matchframes"]} frames)</li>'
-        f'{overrun}{speed}{bars_lines(match)}'
+        f'{overrun}{speed}{bars_lines(match)}{assessment_lines(match)}'
         '</ul>')
+
+
+def assessment_lines(match: dict) -> str:
+    assessment = match.get('assessment')
+    if not assessment:
+        return '<li>Visual analysis: not recorded (legacy record)</li>'
+    lines = [f"<li><b>Matched-span analysis: {html.escape(assessment['status'])}</b></li>"]
+    if assessment.get('review_recommended'):
+        lines.append('<li>Visual review recommended; matching decision unchanged.</li>')
+    for side in ('source', 'candidate'):
+        span = assessment.get(side)
+        if span:
+            def fraction(key):
+                return 'unknown' if span[key] is None else f"{span[key]:.0%}"
+            lines.append(f"<li>{side}: sampled central picture, dark {fraction('dark_ratio')}, "
+                         f"low change {fraction('low_motion_ratio')} of observed time "
+                         f"(analysis covers {span['coverage_fraction']:.0%} of reported span).</li>")
+    for label, group in (('Content', 'content_notes'), ('Position', 'position_notes')):
+        lines.extend(f'<li><b>{label}:</b> {html.escape(note)}</li>' for note in assessment.get(group, []))
+    return ''.join(lines)
+
+
+def profile_details(profile: dict) -> str:
+    text = html.escape(video_profile.describe(profile))
+    if profile.get('status') != 'complete':
+        return text
+    color = profile.get('color', {})
+    if color.get('range_assumed') or color.get('transfer_assumed'):
+        text += ' Colour metadata incomplete: range and/or SDR transfer were assumed; see JSON.'
+    if profile.get('edge_difference'):
+        text += ' Whole frame is darker than the centre; inspect the borders (this is not bar detection).'
+    intervals = profile['regions']['center']['intervals']
+    details = []
+    for label, spans in intervals.items():
+        ranges = ', '.join(f'{a:.1f}–{b:.1f}s' for a, b in spans)
+        details.append(f'<li>{html.escape(label)}: {ranges or "none detected"}</li>')
+    return text + '<details><summary>Sampled central intervals (half-open)</summary><ul>' + ''.join(details) + '</ul></details>'
 
 
 def player(path: str, at: float, name: str, shown_path: str, *, native: bool = False) -> str:
@@ -253,7 +291,8 @@ def video_inventory(record: dict) -> str:
             status = "no match reaching the threshold" if video["status"] == "checked" else video["status"]
             items.append(f'<li>{html.escape(video["path"])} ({role}, {html.escape(status)}): '
                          f'{html.escape(crop_description(video))}'
-                         f'<div class="hint">{html.escape(detail)}</div></li>')
+                         f'<div class="hint">{html.escape(detail)}</div>'
+                         f'<div class="hint">{profile_details(video.get("analysis", {}))}</div></li>')
     return '<details class="method"><summary>Video decisions and warnings</summary><ul>' + "".join(items) + '</ul></details>' if items else ""
 
 
@@ -285,11 +324,18 @@ def render(record: dict, missing: list[str], media_paths: dict | None = None) ->
               f'{"s" if sources != 1 else ""} '
               f'against {candidates} candidate'
               f'{"s" if candidates != 1 else ""}')
-    if summary and not summary.get("complete", True):
-        counts += (f', {summary["sources_failed"] + summary["candidates_failed"] + summary.get("sources_not_compared", 0) + summary.get("candidates_not_compared", 0)}'
-                   f' not processed')
+    not_processed = sum(summary.get(key, 0) for key in (
+        'sources_failed', 'candidates_failed', 'sources_not_compared', 'candidates_not_compared'))
+    if not_processed:
+        counts += f', {not_processed} not processed'
+    if summary.get('analysis_failed'):
+        counts += f", {summary['analysis_failed']} analysis failures"
 
     warning = unprocessed(record)
+    analysis = record.get('analysis', {})
+    if analysis.get('enabled') and not analysis.get('complete', False):
+        warning += ('<div class="warn"><b>Analysis incomplete</b>: some requested videos lack '
+                    'visual-property measurements. Completed comparisons are retained; see individual statuses.</div>')
     reviews = sum(bool(m.get("requires_review")) for m in matches)
     if reviews:
         counts += f', {reviews} need review (crop fallback)'
@@ -313,7 +359,7 @@ def render(record: dict, missing: list[str], media_paths: dict | None = None) ->
 {chr(10).join(row(m) for m in matches)}
   </table>"""
     else:
-        complete = summary.get("complete", True) and record.get("comparison", {}).get("complete", True)
+        complete = record.get("comparison", {}).get("complete", summary.get("complete", True))
         message = (f'No candidate reached the {settings["min_coverage"]:.0f}% threshold; reuse is not ruled out.'
                    if complete else 'No completed match to show. Comparisons are incomplete; see the file statuses above.')
         body = f'<div class="empty">{message}</div>'
@@ -347,6 +393,7 @@ def render(record: dict, missing: list[str], media_paths: dict | None = None) ->
         <dd>{html.escape(settings.get("crop_mode", "motion") + " mode") if settings["crop_bars"] else "off"}</dd>
       <dt>Coarse filter</dt><dd>{"off, -d 10001" if settings.get("coarse_filter") is False else "on"}</dd>
       <dt>Fixed 5% fallback</dt><dd>{"on; additional hits need review" if settings.get("crop_fallback") else "off"}</dd>
+      <dt>Visual analysis</dt><dd>{"sampled SDR properties; decisions unchanged" if settings.get("analyze") else "off" if "analyze" in settings else "not recorded (legacy)"}</dd>
       <dt>Comparison built</dt><dd>{html.escape(tool)}</dd>
       <dt>Comparison arguments</dt><dd><code>{flags}</code></dd>
     </dl>

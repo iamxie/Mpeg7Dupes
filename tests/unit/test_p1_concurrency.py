@@ -117,7 +117,7 @@ for candidate in candidates:
         for i, source in enumerate((original_source, other)):
             cmd = [sys.executable, str(test_find_reuse.SCRIPT), '--source', str(source),
                    '--candidates', str(self.comp), '--sig-dir', str(self.dir / 'sig'),
-                   '--no-crop-bars', '--ffmpeg', self.ffmpeg, '--ffprobe', self.ffprobe,
+                   '--no-crop-bars', '--no-analysis', '--ffmpeg', self.ffmpeg, '--ffprobe', self.ffprobe,
                    '--mpeg7dupes', self.m7d, '--json', str(self.dir / f'parallel-{i}.json')]
             env = dict(self.env, COMPARE_GATE=str(gate))
             processes.append(subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,

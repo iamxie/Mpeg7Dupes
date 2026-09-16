@@ -1,0 +1,305 @@
+{
+  "kind": "development regression; previously seen media",
+  "videos": 107,
+  "pairs": 2400,
+  "matches": 222,
+  "matching_fields_statuses_misses_fallback_unchanged": true,
+  "profile_statuses": {
+    "complete": 107
+  },
+  "categories": {
+    "neither": 94,
+    "both": 4,
+    "low_motion": 6,
+    "dark": 3
+  },
+  "assessment_statuses": {
+    "available": 222
+  },
+  "colour_assumptions": 13,
+  "cold_profile_scan_seconds": 114.73021330300253,
+  "hot_profile_lookup_seconds": 0.11737707501742989,
+  "recipe": {
+    "version": "visual-1",
+    "fps": 2,
+    "width": 160,
+    "height": 90,
+    "center": [
+      16,
+      9,
+      128,
+      72
+    ],
+    "range": "8-bit full-range SDR luma",
+    "low_motion_ydif": 2,
+    "minimum_low_motion_seconds": 2,
+    "dark_yavg": 48,
+    "dark_yhigh": 80,
+    "black_pixel_threshold": 32,
+    "low_contrast_spread": 24,
+    "dominant_fraction": 0.8
+  },
+  "recipe_id": "7be4dfde90342e93533223fb959f1fb4c6b57f7fb056475a5c6e648f195321cc",
+  "record_sha256": "f762dd4a05de21ace6ab4c051f195e2e737cc9696684d8fd0e8b65700aca082d",
+  "binary_sha256": "d2ae84649ad4441447f379a5e070571c69b6425eec7c5a3d13815877aba670ff",
+  "snapshot_sha256": {
+    "find_reuse.py": "adf02e0001ecebff64bb4815be49a51a1ee24d4ef4fb8eea40da1ef891ac5420",
+    "run.py": "cbd7a669d89a758bc421d1b626cc25a84ca6ba39cd2d4dea7819a8d5ff97f923",
+    "video_profile.py": "0d60761507fcef35c2b27b812a58721d45a975da2f9bc7f840ddbd5f1a658c1b",
+    "sigmake.py": "1081c0544a1b037df70328a71e4df314167c9d574c0ae608a8a36e9ccff4d86f",
+    "find_reuse.toml": "2df4e98b8d2153eec144c23d2868f20a727806be9b9fab4329141852b8d6c26a",
+    "detect_bars.py": "bdea5d9390a311e24b6adb1e047d2c2b8210d58b8a113b31b5588683e53f483d",
+    "tool_settings.py": "d7cf1f7a2e8fb45a41b9debfc8f5b88757a0494cd906f59d965cf2f95a0caa06",
+    "reuse_record.py": "f8bf882f77a14843c13f8dac55b009cacd70fb8f49087650d9467e1d2f805785",
+    "render_report.py": "547426f84541529c892427df5f045c714eed8c120ed1b2099bef3986359ae89b",
+    "sigstore.py": "8c29915512b9e2c9703c371717a7a250328927f4739321371c0259baa41f727f"
+  },
+  "true_hits": {
+    "total": 210,
+    "review_recommended": 6,
+    "content_notes": 3,
+    "position_notes": 6
+  },
+  "false_hits": {
+    "total": 12,
+    "review_recommended": 0,
+    "content_notes": 0,
+    "position_notes": 0
+  },
+  "added_false_hits": {
+    "total": 8,
+    "review_recommended": 0,
+    "content_notes": 0,
+    "position_notes": 0
+  },
+  "original_sources": [
+    {
+      "name": "ad__source",
+      "category": "neither",
+      "summary": {
+        "start": 0,
+        "end": 60.0,
+        "coverage_fraction": 1.0,
+        "observed_seconds": 60.0,
+        "motion_observed_seconds": 59.5,
+        "dark_ratio": 0.0,
+        "low_motion_ratio": 0.0,
+        "low_contrast_ratio": 0.0,
+        "mean_yavg": 129.59104166666668,
+        "mean_dark_pixels_percent": 17.283333333333335,
+        "mean_ydif": 7.043689243697479
+      }
+    },
+    {
+      "name": "alps__source",
+      "category": "neither",
+      "summary": {
+        "start": 0,
+        "end": 180.0,
+        "coverage_fraction": 1.0,
+        "observed_seconds": 180.0,
+        "motion_observed_seconds": 179.5,
+        "dark_ratio": 0.0,
+        "low_motion_ratio": 0.181058495821727,
+        "low_contrast_ratio": 0.0,
+        "mean_yavg": 114.51717472222212,
+        "mean_dark_pixels_percent": 2.8555555555555556,
+        "mean_ydif": 5.092674381615599
+      }
+    },
+    {
+      "name": "apollo__source",
+      "category": "neither",
+      "summary": {
+        "start": 0,
+        "end": 180.0,
+        "coverage_fraction": 1.0,
+        "observed_seconds": 180.0,
+        "motion_observed_seconds": 179.5,
+        "dark_ratio": 0.019444444444444445,
+        "low_motion_ratio": 0.019498607242339833,
+        "low_contrast_ratio": 0.030555555555555555,
+        "mean_yavg": 101.60077777777768,
+        "mean_dark_pixels_percent": 2.088888888888889,
+        "mean_ydif": 18.203104116991646
+      }
+    },
+    {
+      "name": "dock__source",
+      "category": "neither",
+      "summary": {
+        "start": 0,
+        "end": 180.0,
+        "coverage_fraction": 1.0,
+        "observed_seconds": 180.0,
+        "motion_observed_seconds": 179.5,
+        "dark_ratio": 0.0,
+        "low_motion_ratio": 0.6323119777158774,
+        "low_contrast_ratio": 0.0,
+        "mean_yavg": 114.98331111111115,
+        "mean_dark_pixels_percent": 18.169444444444444,
+        "mean_ydif": 1.8662896601671324
+      }
+    },
+    {
+      "name": "formation__source",
+      "category": "neither",
+      "summary": {
+        "start": 0,
+        "end": 295.4,
+        "coverage_fraction": 1.0,
+        "observed_seconds": 295.4,
+        "motion_observed_seconds": 294.9,
+        "dark_ratio": 0.3618821936357481,
+        "low_motion_ratio": 0.0508646998982706,
+        "low_contrast_ratio": 0.2366283006093432,
+        "mean_yavg": 62.1333063811781,
+        "mean_dark_pixels_percent": 50.90758293838862,
+        "mean_ydif": 12.794582296568327
+      }
+    },
+    {
+      "name": "light__source",
+      "category": "neither",
+      "summary": {
+        "start": 0,
+        "end": 255.0,
+        "coverage_fraction": 1.0,
+        "observed_seconds": 255.0,
+        "motion_observed_seconds": 254.5,
+        "dark_ratio": 0.10392156862745099,
+        "low_motion_ratio": 0.14538310412573674,
+        "low_contrast_ratio": 0.03725490196078431,
+        "mean_yavg": 86.51316872803916,
+        "mean_dark_pixels_percent": 30.20980392156863,
+        "mean_ydif": 13.629319473070712
+      }
+    },
+    {
+      "name": "moon__source",
+      "category": "neither",
+      "summary": {
+        "start": 0,
+        "end": 215.5,
+        "coverage_fraction": 1.0,
+        "observed_seconds": 215.5,
+        "motion_observed_seconds": 215.0,
+        "dark_ratio": 0.38979118329466356,
+        "low_motion_ratio": 0.3023255813953488,
+        "low_contrast_ratio": 0.13225058004640372,
+        "mean_yavg": 43.35725398682136,
+        "mean_dark_pixels_percent": 49.990719257540604,
+        "mean_ydif": 6.194358047281393
+      }
+    },
+    {
+      "name": "night__source",
+      "category": "neither",
+      "summary": {
+        "start": 0,
+        "end": 180.0,
+        "coverage_fraction": 1.0,
+        "observed_seconds": 180.0,
+        "motion_observed_seconds": 179.5,
+        "dark_ratio": 0.10277777777777777,
+        "low_motion_ratio": 0.15598885793871867,
+        "low_contrast_ratio": 0.06388888888888888,
+        "mean_yavg": 89.95673222222223,
+        "mean_dark_pixels_percent": 12.908333333333333,
+        "mean_ydif": 5.878684284122564
+      }
+    },
+    {
+      "name": "ocean__source",
+      "category": "neither",
+      "summary": {
+        "start": 0,
+        "end": 180.0,
+        "coverage_fraction": 1.0,
+        "observed_seconds": 180.0,
+        "motion_observed_seconds": 179.5,
+        "dark_ratio": 0.0,
+        "low_motion_ratio": 0.0,
+        "low_contrast_ratio": 0.0,
+        "mean_yavg": 137.6077091666668,
+        "mean_dark_pixels_percent": 0.0,
+        "mean_ydif": 22.384326211699165
+      }
+    },
+    {
+      "name": "portrait__source",
+      "category": "neither",
+      "summary": {
+        "start": 0,
+        "end": 281.8,
+        "coverage_fraction": 1.0,
+        "observed_seconds": 281.8,
+        "motion_observed_seconds": 281.3,
+        "dark_ratio": 0.1696238466997871,
+        "low_motion_ratio": 0.049768929968005686,
+        "low_contrast_ratio": 0.15365507452093688,
+        "mean_yavg": 95.69139946770758,
+        "mean_dark_pixels_percent": 18.89460610361959,
+        "mean_ydif": 38.972349393089225
+      }
+    },
+    {
+      "name": "slides__source",
+      "category": "neither",
+      "summary": {
+        "start": 0,
+        "end": 180.0,
+        "coverage_fraction": 1.0,
+        "observed_seconds": 180.0,
+        "motion_observed_seconds": 179.5,
+        "dark_ratio": 0.0,
+        "low_motion_ratio": 0.7214484679665738,
+        "low_contrast_ratio": 0.0,
+        "mean_yavg": 174.9991791666666,
+        "mean_dark_pixels_percent": 0.0,
+        "mean_ydif": 3.059579554949858
+      }
+    },
+    {
+      "name": "stars__source",
+      "category": "both",
+      "summary": {
+        "start": 0,
+        "end": 15.0,
+        "coverage_fraction": 1.0,
+        "observed_seconds": 15.0,
+        "motion_observed_seconds": 14.5,
+        "dark_ratio": 1.0,
+        "low_motion_ratio": 1.0,
+        "low_contrast_ratio": 0.0,
+        "mean_yavg": 41.02707,
+        "mean_dark_pixels_percent": 37.733333333333334,
+        "mean_ydif": 0.535395551724138
+      }
+    },
+    {
+      "name": "zion__source",
+      "category": "low_motion",
+      "summary": {
+        "start": 0,
+        "end": 29.0,
+        "coverage_fraction": 1.0,
+        "observed_seconds": 29.0,
+        "motion_observed_seconds": 28.5,
+        "dark_ratio": 0.0,
+        "low_motion_ratio": 1.0,
+        "low_contrast_ratio": 0.0,
+        "mean_yavg": 81.51916034482758,
+        "mean_dark_pixels_percent": 16.0,
+        "mean_ydif": 0.17588224385964915
+      }
+    }
+  ],
+  "limitations": [
+    "This is descriptive annotation, not a false-match classifier or calibrated confidence.",
+    "All 12 known false hits, including 8 crop-fallback additions, remain unflagged by the new property rules.",
+    "Whole-video neither means neither property dominates 80% of observed time, not normal or safe footage.",
+    "Previously seen third-set footage is development data; no rules were tuned after viewing these results.",
+    "Cold timing includes signature-cache reuse, serial profile decoding and comparison; hot timing is profile lookup only."
+  ]
+}
