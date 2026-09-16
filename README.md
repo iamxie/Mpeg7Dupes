@@ -192,188 +192,210 @@ files available too; the HTML links to them rather than embedding them.
 
 ## The recommended flow
 
-The quick start runs `find_reuse.py` to create signatures, compare videos
-and save a JSON record, then renders that record as HTML. This section
-explains why the commands use separate source/candidate roles, keep the
-defaults, and save both a JSON record and a playable report.
+**Start with the quick-start commands and keep the defaults for your first
+scan.** They separate finding possible reuse from checking the footage:
+
+| Step | What it gives you | Why it matters |
+| --- | --- | --- |
+| Choose a source and candidates | A search for your clip inside other videos | The reporting threshold is based on how much of **your source** was found. |
+| Run `find_reuse.py` | Cached signatures, visual analysis and a JSON scan record | Matching finds possible reuse; analysis adds context for reviewing it. |
+| Run `render_report.py` | Side-by-side players and result notes | You can confirm the footage and check its boundaries. Rendering does not repeat the scan. |
+| Keep the cache and JSON | Faster reruns and a record you can reopen | Unchanged signatures and visual profiles can be reused. Neither output modifies your videos. |
+
+The sections below explain the choices. Expand the technical details only
+when you need to tune, troubleshoot or audit a run.
 
 ### Why source and candidate have different roles
 
-The scanner asks how much of **the source** occurs in each candidate. It
-reports a pair when:
+**Put the clip you are looking for in `--source`.** The scanner reports a
+pair when its matched frame count reaches the configured share of that source:
 
 ```text
 matched frames / frames in the source >= 0.40
 ```
 
-For example, finding about 30 seconds of a 60-second source inside a
-10-minute candidate passes that rule; finding 30 seconds of a 10-minute
-source inside a 60-second candidate does not. That is why the quick start
-puts the clip you are looking for in `--source`, and why reversing two files
-can change the result. Coverage is approximate, especially at different
-speeds; it is a screening threshold, not an exact measurement of reused time.
+With the default 40% threshold:
 
-A source folder repeats this question for every original. It does not turn
-the operation into an all-pairs search within that folder.
+| Source | Candidate | Shared footage | Result |
+| --- | --- | --- | --- |
+| 60 seconds | 10 minutes | About 30 seconds | About 50% of the source: passes. |
+| 10 minutes | 60 seconds | About 30 seconds | About 5% of the source: does not pass. |
+
+Reversing the files changes the question. Coverage is approximate, especially
+when speeds differ; the threshold is a screening rule, not an exact measure
+of reused time.
+
+A source folder asks this question for every original against every candidate.
+It does not compare originals against one another. To compare every pair in
+one library, use the [direct signature workflow](#comparing-a-whole-library-directly).
 
 ### Why the quick start keeps the matching defaults
 
-The examples leave these settings in `tools/find_reuse.toml`. Command-line
-options override the file; the file overrides built-in defaults.
+**Use the defaults as a starting point, then change a setting for a specific
+problem.** The examples use `tools/find_reuse.toml`; precedence is
+**command line → TOML file → built-in defaults**.
 
-| Setting | Why it is used |
-| --- | --- |
-| `fps = 5` | Both sides need the same sampling rate. Five frames per second is the measured balance between cost, time resolution and short-clip detection. Raising it generates larger signatures; lowering it can lose short excerpts. |
-| `min_coverage = 40` | A source-based reporting threshold supported by the existing measurements. It separates many incidental shared segments from longer reuse, but short, simple-looking sources still produce false matches. |
-| `thxh = 290` | The measured frame-similarity tolerance, passed to C as `-x 290`. Higher values accept more dissimilar frames and can add false matches. |
-| `crop_bars = true`, `crop_mode = "motion"` | Bars change the arrangement of the picture. Removing detected top/bottom bars before fingerprinting can make a bordered copy align with its original. Uncertain detections leave the picture uncropped. |
-| `coarse_filter = true` | Skips unlikely segment pairs before detailed comparison. It saves time and has also suppressed short-source false matches in the measured sets. Turning it off is a separate experiment, not a general accuracy upgrade. |
-| `analyze = true` | Adds sampled darkness/change measurements and matched-span explanations. It helps decide what to inspect without changing match decisions. |
+| Setting | Why the quick start uses it | When to reconsider it |
+| --- | --- | --- |
+| `fps = 5` | Measured balance between signature size, time resolution and short-clip detection. | Raise it for short clips. Both sides must use the same rate; the scanner handles this. |
+| `min_coverage = 40` | Reports substantial overlap with the source in the measured sets. | Lower it to look for smaller excerpts, accepting more leads to inspect. Short, simple-looking sources can still give false matches. |
+| `thxh = 290` | Measured frame-similarity tolerance (`-x 290` in C). | Treat changes as an experiment. Higher values accept more dissimilar frames and can add false matches. |
+| `crop_bars = true`, `crop_mode = "motion"` | Removes detected top/bottom bars so the picture can align with an unbordered copy. Uncertain detections leave it uncropped. | Inspect the crop on still or dark footage; see the choices below. |
+| `coarse_filter = true` | Saves comparison time and suppresses some short-source false matches. | Disable only for a controlled comparison; it can recover misses and add false matches. |
+| `analyze = true` | Explains darkness and low change without changing match decisions. | Use `--no-analysis` to skip the extra analysis work and its notes. |
 
-The sampling rate matters because a signature contains one fingerprint per
-sampled frame: frame 300 represents ten seconds at 30 fps and sixty seconds
-at 5 fps. Matching different rates would compare incompatible timelines.
-The wrapper samples both sides consistently. Only binary signatures are
-supported, not `format=xml`.
+**Choose cropping by the problem you are investigating:**
 
-Cropping needs inspection too: static or dark picture edges can confuse bar
-detection. `--crop-mode black` explicitly selects a different detector for
-plain black bars on still footage; it can also crop dark picture content.
-The tool does not switch modes automatically. The quick start's crop retry
-uses `--no-crop-bars --crop-fallback` to establish a full-frame baseline before
-trying the fixed crop, as explained [below](#optional-fixed-5-crop-fallback).
+| Situation | Setting | What to check |
+| --- | --- | --- |
+| Ordinary scan | Keep motion bar detection | Check that the reported crop removes bars rather than picture content. |
+| Plain black bars on mostly still footage | Try `--crop-mode black` | Dark picture content can also be cropped. This mode is never selected automatically. |
+| You want the full picture compared | Use `--no-crop-bars` | Bars remain part of the signature. |
+| A copy may have lost 5% at the top and bottom | Use `--no-crop-bars --crop-fallback` | This is an extra crop hypothesis; added hits need review. See [how it works](#optional-fixed-5-crop-fallback). |
 
-The measurements behind these choices, and the material on which they fail,
-are in [benchmark.md](benchmark.md) and [Limits](#limits). The defaults are a
-starting point, not a guarantee for every kind of footage.
+These defaults have measured failure cases. See [Limits](#limits) for what to
+do about them and [benchmark.md](benchmark.md) for the supporting experiments.
+
+<details>
+<summary>Technical details: sampling, coarse filtering and settings validation</summary>
+
+- **Sampling:** a signature contains one fingerprint per sampled frame.
+  Frame 300 is ten seconds at 30 fps and sixty seconds at 5 fps; mixing rates
+  compares incompatible timelines. Only binary signatures are supported,
+  not `format=xml`.
+- **Coarse-filter experiment:** `--no-coarse-filter` passes `-d 10001` to C.
+  On the tuning corpus, the filter retained every true match and cut about
+  two thirds of comparison time. In the first independent validation, turning
+  it off recovered 7 of 256 expected matches, all on a static sunset shot
+  (5 had been lost through a bar-detector fault fixed since). It also added
+  204 false matches: 10/20-second clips and an 8-second opening appeared in
+  unrelated videos at 40–100% coverage. Comparison took roughly three times
+  as long; fingerprinting was unaffected. The choice is recorded in
+  `settings.coarse_filter` and shown in HTML.
+- **Validation:** fps must be finite and positive; coverage must be 0–100;
+  jobs must be a nonnegative integer; C options must fit their integer ranges.
+  TOML booleans must be booleans. Unknown keys, malformed TOML and a missing
+  or unreadable explicit `--config` are errors. Settings are checked before
+  output is created. Relative executable paths are resolved before any
+  subprocess changes directory.
+
+</details>
 
 ### Why save JSON, render HTML and keep the cache
 
-`--json` keeps the run's inputs, settings, completed comparisons, failures
-and measured matches. `render_report.py` turns that record into side-by-side
-players so you can check the footage and the reported boundaries. Rendering
-does not repeat the scan, and neither output modifies your videos.
+**Keep all three: the JSON record, the HTML report and the cache.** They have
+different jobs:
 
-`--sig-dir "./.signatures"` gives all the quick-start examples one reusable
-store. Decoding dominates the first scan's cost, so the scanner keeps both
-signatures and visual profiles. Repeating a scan with unchanged videos and
-settings reuses them; changing a crop mode or sampling rate may require new
-signatures. Keep the index with the cached files. There is no need to add
-`--overwrite` for an ordinary rerun.
+| Item | What it is for | What to keep in mind |
+| --- | --- | --- |
+| JSON from `--json` | Inputs, settings, completed comparisons, matches and failures | You can render another report from it without scanning again. |
+| HTML report | Playing and checking matches | It links to the original videos; it does not embed or copy them. Keep those files available. |
+| Store at `--sig-dir "./.signatures"` | Reusing signatures and visual profiles | Keep the index and cached files together. The index alone is not enough. |
 
-### Comparing a whole library directly
+**For an ordinary rerun, use the same command and cache directory.** New videos
+need processing; unchanged ones reuse cached work. Changing fps or crop mode
+may need new signatures. Use `--overwrite` when you deliberately want to
+regenerate cached work, not for every scan.
 
-For an all-pairs search, the C program reads a list of signatures. This is
-the lower-level workflow behind the other question in [What it does](#what-it-does).
-Generate one signature per video, with the same sampling rate and a consistent
-crop policy. For an uncropped video:
+<details>
+<summary>Technical details: cache identity, rebuilds and concurrent runs</summary>
 
-```sh
-mkdir -p sig
-ffmpeg -nostdin -i input.mkv -vf "fps=5,signature=filename=sig/input.bin" \
-    -map 0:v:0 -an -f null -
-```
+| Cache behaviour | Detail |
+| --- | --- |
+| Video identity | Content-based: renamed, moved or copied videos can reuse signatures. The unchanged-file fast path trusts size and mtime and reads no video data. Deliberately restoring both can evade it; `--overwrite` forces reidentification. |
+| Signature identity | Includes fps and crop recipe. Exact float fps keys avoid rounded-name collisions; unambiguous integer-fps entries remain usable, while ambiguous old entries are invalidated together. |
+| Crop recipes | Motion uses `3`, black uses `black-1`, and fixed fallback uses `fixed5-1`; uncropped signatures have an independent identity. The schema 2 column named `detector` also stores crop recipe versions. A fixed recipe does not mean bars were detected. |
+| Visual profiles | The SQLite `profiles` table uses content hash plus analysis recipe, independently of signature fps/crop. Raw samples live in cached JSON; scan records carry summaries, intervals and matched-span measurements. |
+| Shared store | Tools must share `--db` and `--sig-dir`, with matching signature settings. Index paths are relative to the signature directory. Files alone cannot reconstruct stored crop/duration metadata. |
+| Rebuilds | Signatures are validated under a temporary name, then published as immutable `.gen-<id>.sig` files. Profiles also use immutable generations and checksums. A short transaction switches the index; a failed overwrite preserves the previous generation. Active readers keep their original file. |
+| Old generations | Rebuilds can leave unreferenced files; there is no automatic garbage collection. Select signatures through the index, rather than globbing every generation for comparison. |
+| Concurrent producers | Per-key file locks and a brief initialization lock protect publication. No SQLite write transaction is held during ffmpeg. Locks live in `.<index-name>.locks`; leave them in place while producers run. This assumes a shared index/directory on one local filesystem, not cross-machine/network locking. Each scan owns its comparison lists. |
+| Changing inputs | Size, timestamps and file identity are checked from hashing through decoding; a detected change discards that attempt. |
+| Version changes | `--overwrite` regenerates signatures and enabled profiles. FFmpeg upgrades alone do not invalidate them; relevant recipe changes do. |
 
-Repeat with a distinct output filename for each video. If bars need removing,
-`tools/detect_bars.py` can supply a crop to apply before `fps,signature`; the
-scanner automates this step, but the raw ffmpeg command above does not.
-Then compare the generated files:
+Detector version 3 selects the first video track consistently with signature
+extraction, accounts for display rotation and fails a file when a sampling
+window fails. Its motion thresholds are unchanged, but its new identity
+rebuilds older cropped signatures once; uncropped signatures are unaffected.
+The cheap cache check validates supported header flags and byte counts; the
+C loader performs full data validation during comparison.
 
-```sh
-find sig -name '*.bin' | sort > siglist.txt
-mpeg7dupes -l siglist.txt > dupes.csv 2> run.log
-```
-
-`dupes.csv` contains measured matches; `run.log` records progress and errors.
-Every pair in the list is compared, so 600 signatures mean 179,700 pairs.
-The current C defaults include `-f csv -m longest -x 290 -i 0 -k 1 -b 0.5`;
-the reuse scanner uses `-b 0.1` for its source-excerpt question.
-
-To screen for duplicate candidates, use the shorter file as the denominator:
-
-```text
-matched frames / min(frames in file A, frames in file B) >= 0.40
-```
-
-The counts come from each signature's header; the C CSV does not include
-them or apply this coverage rule for you. That makes this a lower-level
-workflow requiring post-processing, not the same as passing one folder as
-both `--source` and `--candidates`. See [Reading the result](#are-these-two-videos-the-same)
-for the CSV fields. A qualifying pair still needs visual review before you
-treat the files as duplicates.
+</details>
 
 ### Two-pass visual analysis
 
-The scanner now analyzes each original video before comparison, then explains
-both reported match spans. This is on by default; use `--no-analysis` or
-`analyze = false` in TOML to skip it, and `--analyze` to override that setting.
-It adds context without changing signatures, thresholds, hits, misses, crops,
-speed ranking, or the existing crop-fallback `requires_review` decision.
+**This explains what to inspect in a match; it does not change which videos
+match.** Analysis is on by default. Use `--no-analysis` or `analyze = false`
+to skip it; `--analyze` overrides that setting.
 
-Pass 1 samples the entire first video stream at 2 fps. FFmpeg normalizes SDR
-luma to 8-bit full range on a 160×90 grid and measures both the whole frame
-and its central 80% in each dimension. The centre drives the descriptive
-flags; the whole frame provides border context. This centre is a fixed region
-of the original, not an inferred bar crop or a signature-specific view.
+| Pass | What it checks | Why it helps |
+| --- | --- | --- |
+| 1. Whole video | Samples darkness, change and contrast throughout the original video | Identifies mostly dark or nearly static footage, including videos with no match. |
+| 2. Matched spans | Examines the reported source and candidate spans separately | Bases review notes on the actual match: a dark opening need not describe a bright match later. |
 
-| Property | Initial descriptive rule |
+| Note or measurement | What to do |
 | --- | --- |
-| Dark sample | Mean luma ≤48 and 90th percentile luma ≤80 on the 0–255 scale |
-| Low-change interval | Mean absolute luma difference between adjacent sampled frames ≤2, sustained for at least 2 seconds |
+| Dark content | Check that enough visible detail is shared. Darkness alone does not establish underexposure. |
+| Low change | Check start/end positions carefully: static or repeating scenes can align at the wrong time. |
+| Both properties | Prioritize reviewing both content and positions. |
+| Unknown, unavailable or unsupported | Do not read this as “normal.” There may be too little usable analysis to judge. |
+
+Darkness and low change are independent: either, both or neither can apply.
+Their percentages describe **sampled time**, not match confidence. An
+unflagged match still needs visual review. Analysis leaves signatures, crops,
+thresholds, hits, speed ranking and crop-fallback review decisions unchanged.
+
+**Cost:** the first analysis adds a full decode without writing another video.
+Later runs reuse profiles without decoding or probing unchanged videos.
+An analysis failure preserves completed comparisons and matches, but marks the
+run incomplete; see [result statuses](#does-their-video-contain-my-clip).
+
+<details>
+<summary>Technical details: sampling rules and colour assumptions</summary>
+
+Pass 1 samples the first video stream at **2 fps**, normalizing SDR luma to
+8-bit full range on a **160×90** grid. It measures the whole frame and the
+central 80% in each dimension. The centre drives the descriptive flags; the
+whole frame supplies border context. Both use the original picture before
+any signature crop.
+
+| Property | Descriptive rule |
+| --- | --- |
+| Dark sample | Mean luma ≤48 and 90th percentile luma ≤80, on the 0–255 scale |
+| Low-change interval | Mean absolute luma difference between adjacent samples ≤2, sustained for at least 2 seconds |
 | Low contrast | 90th minus 10th percentile luma ≤24 |
-| Dominant property | At least 80% of the observed time satisfies the rule |
+| Dominant property | At least 80% of observed time satisfies the rule |
 
-Darkness and low change are independent: a video can have either, both, or
-neither. JSON retains ratios, average luma, average change, the proportion of
-pixels below luma 32, and half-open time intervals. The first sample has no
-previous frame and is excluded from the motion denominator. Shorter changes
-and small or periodic movement can be missed; these are sampled estimates,
-not a detector of exact freezes or semantic detail. The rules are provisional,
-not calibrated probabilities. A dark scene does not establish underexposure.
+JSON retains ratios, average luma/change, the proportion of pixels below
+luma 32 and half-open time intervals. The first sample has no predecessor
+and is excluded from the motion denominator. Short changes and small or
+periodic movement can be missed. These provisional rules are not calibrated
+probabilities or a detector of exact freezes or semantic detail.
 
-Pass 2 measures the actual source and candidate spans separately. A dark
-opening does not imply a dark match later in the video. Content notes request
-checking visible details; low-change notes request verifying start/end
-positions. Both properties together recommend priority review. Overruns,
-insufficient observations and unavailable profiles stay explicit. The
-inclusive final signature frame is included in each span using `1 / fps`.
-The HTML shows these notes and time proportions, and its video inventory
-shows whole-video summaries and intervals even when nothing matched. None
-of these proportions is match confidence; an unflagged match is not verified.
+Pass 2 includes the last matched signature frame by extending its timestamp
+by `1 / fps`. Overruns, insufficient observations and unavailable profiles
+remain explicit. HTML shows matched-span notes and time proportions, plus
+whole-video summaries and intervals in the inventory even when nothing matched.
 
-Explicit full/limited range tags take precedence. Without them, YUV is assumed
-limited except full-range pixel formats; RGB/gray are assumed full. Missing
-transfer tags are treated as SDR and recorded as an assumption. Tagged HDR
-and other unsupported transfer functions get `unsupported` rather than a
-brightness judgement. This is an acknowledged unsupported result, not a
-failed decode. Incorrect or missing colour tags can still invalidate the
-interpretation. Thick borders and picture content outside the centre also
-need manual inspection.
+| Colour information | How it is handled |
+| --- | --- |
+| Explicit full/limited range | The tag takes precedence. |
+| Missing range | YUV is assumed limited except full-range pixel formats; RGB/gray are assumed full. |
+| Missing transfer tag | SDR is assumed, and that assumption is recorded. |
+| Tagged HDR or other unsupported transfer | Marked `unsupported`, with no brightness judgement. This acknowledged limitation is not a decode failure. |
 
-`settings.analyze` records the choice; each video's `analysis` includes its
-status, recipe, original FFmpeg version, summaries, intervals and cached
-artifact SHA-256. `tool.analysis` identifies the current analysis code and
-recipe. Each hit has `assessment` with separate content/position notes and
-`review_recommended`; this does not change candidate status or
-`requires_review`. Legacy records are labelled as having no recorded analysis.
-Operational analysis failures preserve completed comparisons and matches,
-set `analysis.complete` and `summary.complete` false, and exit 1 unless a
-comparison/preparation failure requires exit 2. `comparison.complete` remains
-independent; an analysis failure is neither a miss nor evidence of normality.
+Incorrect/missing colour tags, thick borders and content outside the central
+region can affect interpretation. Shared decoding with signature extraction
+is future work. Measurements are in the
+[two-pass development regression](benchmark.md#two-pass-analysis-development-regression).
 
-Cold analysis performs an additional full decode, without writing another
-video. Warm runs read cached measurements without decoding or probing video.
-The additive SQLite `profiles` table uses `(content hash, analysis recipe)`
-independently of signature fps/crop settings. It stores immutable JSON
-generations with per-key locks, checksums and short publication transactions;
-a failed overwrite preserves the prior generation. Raw samples live there,
-while scan records carry summaries/intervals and matched-span measurements.
-`--overwrite` regenerates enabled profiles as well as signatures. FFmpeg
-upgrades do not automatically invalidate either cache; recipe changes do.
-Shared decoding is future work. The development results and limitations are
-in [benchmark.md](benchmark.md#two-pass-analysis-development-regression).
+</details>
 
 ### Optional fixed 5% crop fallback
+
+**Use this when a missed copy may have had 5% removed from its top and bottom.**
+It tests a specific crop hypothesis, rather than detecting bars or arbitrary
+spatial edits.
 
 ```sh
 uv run tools/find_reuse.py --source mine.mp4 --candidates ./downloads \
@@ -381,445 +403,775 @@ uv run tools/find_reuse.py --source mine.mp4 --candidates ./downloads \
 uv run tools/render_report.py reuse.json --out report.html
 ```
 
-This opt-in mode compares full frames first. For each pair below the threshold,
-it compares a source cropped 5% at the top and bottom against the full candidate,
-and the full source against a similarly cropped candidate. The 1000×540 centre
-of a 1000×600 original can thus match the full frame of its cropped copy.
-Cropping both videos again would lose that alignment.
+The scan first compares full frames. Each pair below the reporting threshold
+gets two retries:
 
-`--no-crop-bars` is required for an explicit full-frame baseline. The default
-motion/black workflow stays unchanged. Fixed cropping deliberately removes
-picture content; it is not bar detection. Each edge rounds to the nearest even
-pixel, half upwards, using the displayed height after autorotation. The actual
-filter is recorded. ffmpeg applies `crop` before `fps,signature` directly; no
-intermediate video is created or re-encoded.
+| Comparison | Source view | Candidate view |
+| --- | --- | --- |
+| Baseline | Full frame | Full frame |
+| Retry 1 | Crop 5% from top and bottom | Full frame |
+| Retry 2 | Full frame | Crop 5% from top and bottom |
 
-Only videos involved in below-threshold pairs need the extra signature. The
-first request decodes that video again; later scans reuse both views. Each
-retried pair costs two extra comparisons. This version does not combine the
-signature extractions into one decode.
+For example, the 1000×540 centre of a 1000×600 original may align with the
+full frame of its cropped copy. Cropping both sides again would lose that
+alignment. `--no-crop-bars` is required to establish the full-frame baseline.
 
-Added hits carry `requires_review: true`; a candidate with only these hits has
-status `needs_review`. The terminal and HTML label them **Needs review**.
-More views can add false matches; do not use these results for automatic
-duplicate deletion. Thresholds, speed ranking and temporal coverage rules are
-unchanged. General spatial alignment and arbitrary crops remain unsupported.
+**How to use the result:** manually inspect added hits labelled **Needs review:
+5% crop fallback**. More views can produce false matches; these results should
+not trigger automatic duplicate deletion. Matching thresholds and speed rules
+stay the same. General reframing and arbitrary crops remain unsupported.
+
+**Cost:** each retried pair adds two comparisons. Only videos used in those
+pairs need an extra signature and decode; subsequent scans reuse both views.
+FFmpeg applies the crop filter directly before `fps,signature`, so no cropped
+video is saved or re-encoded.
+
+<details>
+<summary>Technical details: crop rounding, evidence and partial failures</summary>
+
+- Each edge rounds to the nearest even pixel, half upwards, using displayed
+  height after autorotation. The actual filter is recorded. Signature views
+  are extracted separately, not in a shared decode.
+- Added hits carry `requires_review: true`; candidates with only those hits
+  have status `needs_review`.
+- `view_evidence` retains both directional measurements and signature
+  identities. The longest result is displayed, source-cropped first on ties.
+- `fallback.pairs` retains the full-frame measurement and completion of both
+  retries, including comparisons with no CSV match. Each video's extra view
+  is under `crop_fallback`: `crop_state: fixed`, `crop_mode: fixed5`, signature
+  view `crop5`. Baseline views are `full`, with bar cropping `disabled`.
+- Preparation/comparison failures exit 2 and preserve earlier completed hits.
+  Unchecked pairs do not become misses. `comparison.sources_completed` covers
+  the requested process; `full_frame_sources_completed` separately records
+  the baseline. The fallback audit covers usable signatures; the top-level
+  summary also accounts for preparation failures.
+
 See [benchmark.md](benchmark.md) for the development measurements.
 
-Both directional measurements and signature identities are in `view_evidence`;
-the longest result is displayed, source-cropped first on ties. `fallback.pairs`
-also retains the original full-frame measurement and completion of both
-directions, including absent CSV matches. A fallback preparation or comparison
-failure exits 2, preserves earlier completed hits, and prevents unchecked pairs
-from becoming misses. `comparison.sources_completed` covers the whole requested
-process; `full_frame_sources_completed` separately records the baseline stage.
-The fallback audit covers usable signatures; the top-level summary still
-accounts for files that failed preparation.
+</details>
+
+### Comparing a whole library directly
+
+**Use this lower-level workflow to compare every pair in one library.** It
+produces CSV and requires post-processing; passing one folder as both source
+and candidates to the reuse scanner does not do the same job.
+
+1. **Generate one binary signature per video**, with distinct output names
+   and the same sampling rate and crop policy. For an uncropped video:
+
+   ```sh
+   mkdir -p sig
+   ffmpeg -nostdin -i input.mkv -vf "fps=5,signature=filename=sig/input.bin" \
+       -map 0:v:0 -an -f null -
+   ```
+
+   Repeat for each video. If bars need removing, `tools/detect_bars.py` can
+   supply a crop to apply before `fps,signature`; this raw command does not
+   detect or remove them automatically.
+
+2. **Compare the generated signatures:**
+
+   ```sh
+   find sig -name '*.bin' | sort > siglist.txt
+   mpeg7dupes -l siglist.txt > dupes.csv 2> run.log
+   ```
+
+   `dupes.csv` contains measured matches; `run.log` records progress and errors.
+   Every pair is compared: 600 signatures mean 179,700 pairs.
+
+3. **Screen pairs using the shorter file, then review the footage:**
+
+   ```text
+   matched frames / min(frames in file A, frames in file B) >= 0.40
+   ```
+
+   Read frame counts from the signature headers. C does not include them in
+   its CSV or apply this coverage rule. Passing the rule identifies a pair
+   to inspect, not proof that the whole files are duplicates. See the
+   [CSV reading guide](#are-these-two-videos-the-same).
+
+The C defaults include `-f csv -m longest -x 290 -i 0 -k 1 -b 0.5`. The reuse
+scanner uses `-b 0.1` for its source-excerpt question.
 
 ## Reading the result
 
-### Are these two videos the same
+**Read the HTML report in this order: completion → matches → review notes.**
+A match is a lead to check; a completed scan with no hit does not rule out reuse.
 
-One CSV row per pair with a match; a pair scoring 0 is not printed at all,
-so a missing row does not mean the pair was never compared.
+| Check | What to look for | Next action |
+| --- | --- | --- |
+| 1. Did the run finish? | Errors, failed/not-compared files, “Analysis incomplete” | Identify what is missing before interpreting an empty result. |
+| 2. Is the same footage visible? | Play **My video** and **Their video** for each row | Confirm content before accepting the match. |
+| 3. Are the position and length plausible? | **Reuse starts**, matched length, speed/overrun notes | Scrub around both boundaries; reported times can be wrong. |
+| 4. Does this need extra care? | Content/position notes and **Needs review: 5% crop fallback** | Follow the notes; percentages from visual analysis are not confidence scores. |
 
-| Column | Meaning |
-| --- | --- |
-| `score` | Votes for the winning alignment, measured from whichever file is first. Not a length |
-| `matchframes` | Frames of the second clip the walk covered, including up to three bad frames tolerated at each end. This, over the shorter file's frame count, is coverage |
-| `goodframes`, `totalframes` | Numerator and denominator of the `-b` test, so a stricter `-b` can be applied to a finished CSV |
-| `offset` | Where the seed pair sat inside its Hough window. A diagnostic, not the shift between the clips |
-| `framerateratio` | The speed of the second clip relative to the first, as the alignment voted it, on a grid of thirtieths. At any value but 1.0 `matchframes` counts the frames of the slower clip; see [Limits](#limits) |
-| `meandist` | Mean frame distance over the match, lower is closer |
-| `time 1 [s]`, `time 2 [s]` | The frame each side was seeded on. Inside the match, not at either end |
-| `begin 1 [s]`, `end 1 [s]`, `begin 2 [s]`, `end 2 [s]` | The first and last frame the walk accepted in each file, at the sampling rate. `end` is the time of the last matched frame, not the frame after it |
-| `whole` | 1 when the walk reached a beginning and an end. Read the next paragraph before trusting it |
-
-A run over signatures sampled at 5 fps, where the second file was a 240x136
-re-encode of a 320x180 original with five seconds trimmed from each end:
-
-```
-original.bin,reupload.bin,1056,550,550,550,-26,1.000000,12.57,6.00,1.00,5.00,114.80,0.00,109.80,1
-```
-
-`matchframes` 550 against a 550-frame signature says the shorter clip matches
-end to end; `begin 1` 5.00 places it five seconds into the original.
-
-**`whole` is not "these are the same video."** It is set when the walk
-reached a beginning and an end, and those need not belong to the same file:
-material at the head of one clip and the tail of another satisfies it. On
-the benchmark, two unrelated clips carrying the same 70 second advertisement
-came back with `whole` 1, 351 matched frames, and a score higher than any
-genuine duplicate. Coverage is the measure; `whole` is a hint.
-
-Which file is first in a row is not fixed, because the comparison runs on
-every core and rows are written as they finish. `score` and `offset` change
-with the orientation; `matchframes` and the boundaries do not.
-
-Paths holding a comma, a double quote or a line break are quoted in the CSV
-with inner quotes doubled; any other path is written as it is. CSV is the
-only output; the `beautiful` tree of build 7 and earlier was removed in build
-8, since it assumed rows arrive in order and `tools/render_report.py` is the
-readable view now.
+Use the guide below for the quick-start JSON/HTML workflow. If you ran the C
+program directly, skip to [reading its CSV](#are-these-two-videos-the-same).
 
 ### Does their video contain my clip
 
-Every requested source and candidate stays in the JSON record, including
-files that failed and candidates skipped because they are source paths.
-A candidate is `matched`, `needs_review`, `checked`, `failed`, `skipped`, or `not_compared`.
-`checked` means it was compared against every requested source and did not
-reach the threshold. If some sources fail, the record names the sources
-actually compared in `comparison.sources_completed`; a match can still be
-reported, but the candidate's `comparison_complete` is false. Unfinished
-comparisons never become misses.
+#### 1. Check completion and file statuses first
 
-Exit 0 means the requested scan completed, whether or not it found a match.
-Exit 1 means some file processing or enabled visual analysis failed but usable comparisons completed.
-Exit 2 means invalid settings or tools, no usable comparison, or a comparison
-failure. A later comparison failure preserves matches from earlier completed
-sources. Once the input inventory is collected, fatal errors also write a
-record when `--json` is supplied, so an earlier successful record is not left
-looking like this run. JSON is replaced atomically; a write failure leaves
-the previous file intact and reports exit 2. Records use `find_reuse/8`;
-`render_report.py` reads versions 3 through 8 and shows unfinished work.
-`summary.matches` includes review-only hits; `review_matches` counts that subset.
-A candidate with both normal and review-only hits is `matched`, while each
-pair retains its own `requires_review` flag.
+**Failed or unfinished work is not a negative result.** Every requested source
+and candidate stays in the JSON, including failed files and skipped candidates.
 
-Every processed video carries its crop decision: `disabled`, `detected`,
-`none` or `uncertain` (`unknown` for legacy metadata). These decisions and
-warnings appear on both fresh and cached scans. Short sources get the known
-simple-layout false-match warning; an uncertain crop warns that barred copies
-may be missed. All records and pages state the low-motion/repetition position
-limit and unsupported reframe limit. A checked candidate means **no match
-reaching the threshold was found**, which does not rule out reuse.
+| Candidate status | Meaning | What to do |
+| --- | --- | --- |
+| `matched` | At least one hit reached the threshold without the 5% crop fallback. | Review each hit. Check completion separately: other source comparisons may still be missing. |
+| `needs_review` | Its only qualifying hits came from the 5% crop fallback. | Verify both players before accepting a hit. |
+| `checked` | Compared against every requested source; no hit reached the threshold. | Read this as “no qualifying match found,” not “no reuse.” |
+| `failed` | File processing failed. | Fix the reported cause and rerun. |
+| `skipped` | The candidate path is also a source path. | It was intentionally excluded from candidate comparison. |
+| `not_compared` | The requested comparisons were not completed. | Resolve the failure and rerun before drawing a conclusion. |
 
-`settings.crop_mode` and each processed video's `crop_mode` say `motion`,
-`black`, or `disabled`. The selected mode is also in `tool.detector.mode`;
-the cache detector key is `3` for motion and `black-1` for black. Older
-records describe motion cropping, or disabled cropping, and remain readable.
-With fallback enabled, the baseline still says `disabled`. An extra view
-appears under the video's `crop_fallback`, with `crop_state: fixed`,
-`crop_mode: fixed5`, and signature view `crop5`; full-frame views say `full`.
-Each hit names the exact source/candidate view, crop and signature used.
+**The scanner's exit code describes the run, not whether it found a match:**
 
-`settings.comparison_args` contains the actual C flags, including the wrapper's
-`-b 0.1 -d 9000 -c 60000`; `tool` records the binary SHA-256, scanner and current
-detector and signature-producer code identities. Each video's `content_hash` is BLAKE2b-128 and its
-`signature` records the filename, SHA-256, stored detector version and original
-ffmpeg version. The stored generator version is retained on cache hits; it is
-not replaced by the ffmpeg currently on PATH. A legacy missing identity stays
-unknown. `jobs_requested` is the requested count (0 means automatic); C logs
-the effective count after limiting it to available cores.
-Recording SHA-256 reads each signature, including on a cache hit; it does not
-decode or rehash an unchanged video.
+| Exit | Meaning | What remains usable |
+| --- | --- | --- |
+| `0` | Requested scan completed, with or without hits. | All recorded comparisons; review their results. |
+| `1` | Some file processing or enabled visual analysis failed, but usable comparisons completed. | Completed comparisons and hits. Inspect the affected files and rerun as needed. |
+| `2` | Invalid settings/tools, no usable comparison, or a comparison failure. | Earlier completed hits, if any. Inspect the error; do not treat this as a complete scan. |
 
-The record preserves the paths supplied to the scanner and saves their
-resolution base in `path_base`. A report can be written elsewhere:
+An **Analysis incomplete** warning concerns visual-property measurements;
+matching may still have completed. Conversely, a match row can survive a
+later comparison failure. Check the run's warnings as well as its rows.
+
+<details>
+<summary>JSON details: completion, partial results and report versions</summary>
+
+| Field | Meaning |
+| --- | --- |
+| `summary.complete` | Whether the overall requested run completed. |
+| `comparison.complete` | Comparison completion, independent of visual analysis. |
+| `analysis.complete` | Completion of enabled analysis. Operational failures set this and `summary.complete` false; exit 1 unless preparation/comparison requires exit 2. |
+| Candidate `comparison_complete` | False if it was not compared against every requested source, even if some comparisons found hits. |
+| `comparison.sources_completed` | Sources whose requested comparison process completed. |
+| `summary.matches` / `review_matches` | All reported hits / the crop-fallback subset. |
+
+A candidate with both normal and fallback hits is `matched`; each pair keeps
+its own `requires_review` flag. Unfinished comparisons never become misses.
+
+Once the input inventory is collected, fatal errors also produce JSON when
+`--json` is supplied. Replacement is atomic: a write failure retains the
+previous file and exits 2. Early settings errors can also leave an older file
+in place, so check errors and the report's generation time after a failed run.
+Records use `find_reuse/8`; the renderer accepts versions 3–8 and displays
+unfinished work. Missing legacy analysis is labelled “not recorded.”
+
+</details>
+
+#### 2. Confirm the footage, then check the positions
+
+**A threshold-passing match does not establish that the entire videos are
+identical.** Compare the visible content and matched length with both video
+lengths.
+
+| Report item | How to read it | What to verify |
+| --- | --- | --- |
+| **Reuse starts** | The first candidate frame the comparison accepted. The source span is recorded too. | Scrub before and after both reported boundaries. |
+| **Matched** | Approximate matched length, derived from the matched frame count. | It is not an exact measurement of editing cuts or reused duration. |
+| Speed ratio other than `1.0` | The comparison voted for different playback speeds. Coverage counts the slower clip's frames. | Both timing and length need extra care, especially the source-side span. |
+| Overrun | A reported span extends beyond a video's end. | Its length and position are unreliable; inspect the apparent shared content manually. |
+| Low-change or repeated scenes | Similar frames may occur at many positions. | A correct content match can still be placed a minute or more from its real location. |
+
+The scanner uses **the source's frame count** for the threshold. The terminal
+and HTML show that it passed, without presenting coverage as an exact reuse
+percentage. JSON retains the measured value for inspection. Short sources
+with simple layouts can pass even against unrelated footage; see [Limits](#limits).
+
+<details>
+<summary>Measured examples: how approximate are coverage and timestamps?</summary>
+
+- **Coverage can run high:** clips actually using 86%, 50% and 30% of a source
+  were measured as 88%, 54% and 33%, because the match walk extended past the
+  shared footage. The existing measurements suggest a 40% threshold can fire
+  at around 36% actual use; this is not a universal conversion rule.
+- **Simple synthetic cuts at ratio 1.0:** both starts were exact in three of
+  four cases, and three frames early in the fourth. The smoke test requires
+  a copy cut at five seconds to land within one second of that point.
+- **These checks are not a timing guarantee:** the reported boundaries belong
+  to the comparison walk, not the editor's cuts. Speed changes, low motion
+  and repetition can produce much larger errors.
+
+</details>
+
+#### 3. Use review notes to decide what needs a closer look
+
+| Note | Meaning | What to do |
+| --- | --- | --- |
+| **Needs review: 5% crop fallback** | This hit required an extra cropped view. JSON: `requires_review: true`. | Verify shared content on both sides; the extra views can add false matches. |
+| **Content** notes / dark proportion | Describes visible detail in the sampled match span. | Check that the videos share identifiable details, not just a similar light/dark layout. |
+| **Position** notes / low-change proportion | The matched scene changes little or has limited evidence for its timing. | Check the start and end manually. |
+| **Visual review recommended** | The span assessment recommends closer inspection. JSON: `assessment.review_recommended`. | Follow the content/position notes; this flag does not change the match or candidate status. |
+| Analysis unknown, unsupported or not recorded | No usable judgement is available for that measurement. | Inspect manually; absence of a flag does not verify the match. |
+
+**The two review flags serve different purposes:** `requires_review` marks
+crop-fallback hits; `assessment.review_recommended` adds visual-analysis
+advice. Only the former contributes to the crop-fallback `needs_review` status.
+Dark/low-change percentages measure sampled time, not probability of a match.
+
+Crop decisions also appear for each processed video, on fresh and cached runs:
+
+| Crop decision | Meaning | What to check |
+| --- | --- | --- |
+| `disabled` | Automatic bar cropping was off. | The baseline used the full frame. |
+| `detected` | The selected detector supplied a crop. | It should remove bars, not picture content. |
+| `none` | No bar crop was selected. | This does not prove bars are absent. |
+| `uncertain` | Detection could not decide confidently; the picture was kept. | A barred copy may be missed. |
+| `fixed` | An extra view deliberately removed 5% from the top and 5% from the bottom. | This is the fallback hypothesis, not a detected bar boundary. |
+| `unknown` | Legacy crop metadata is missing. | The record cannot establish the crop decision. |
+
+#### 4. If the report's players are blank
+
+**The HTML links to videos on disk; it does not contain them.** Keep the video
+files at their recorded locations. To render the same scan into another folder:
 
 ```sh
-uv run tools/render_report.py reuse.json --out /path/to/reports/reuse.html
+mkdir -p reports
+uv run tools/render_report.py reuse.json --out reports/reuse.html
 ```
 
-Players resolve from the original scan folder, then use paths relative to the
-HTML file. Videos are not copied. For a legacy record without a saved base,
-pass `--path-base /original/scan/folder`; without it the renderer warns and
-uses the report folder, as older versions did.
+| Situation | What to do |
+| --- | --- |
+| Only the HTML output folder changed | Render again to the desired path. The saved `path_base` resolves relative input paths from the original scan folder. |
+| An old JSON record has no `path_base` | Add `--path-base /original/scan/folder` when rendering. Without it, the renderer warns and assumes the report folder. |
+| The video tree moved and the record uses relative paths | Add `--path-base /new/video/root` when rendering. Keep the same layout within that root. |
+| The videos moved and the record uses absolute paths | Restore their recorded locations or scan their new locations. `--path-base` does not relocate absolute paths. |
 
-Settings are checked before creating output: finite positive fps, coverage
-from 0 to 100, nonnegative integer jobs and valid C integer ranges. TOML
-booleans must be booleans; unknown keys, an unreadable or missing explicit
-`--config`, and malformed TOML are errors. Relative executable paths are
-resolved before any subprocess changes directory.
+<details>
+<summary>JSON reference: settings, input identities and analysis evidence</summary>
 
-The script divides by the source's own frame count, which is the question
-being asked, and reports only that the threshold was passed, never a
-percentage, because the figure runs a little high: clips using 86, 50 and 30
-per cent of a source came back as 88, 54 and 33, the walk carrying a few
-frames past each end of what is really shared. `--min-coverage 40` therefore
-fires at around 36 per cent of real use, which errs towards looking at a few
-extra videos rather than missing one. For a source under about two minutes
-it can also fire on unrelated footage that only looks alike; see
-[Limits](#limits).
+Use these fields to check how a result was produced:
 
-The start is the first frame the comparison accepted in their file, and the
-record also carries the span taken out of yours. Measured on synthetic clips
-cut at known points, with the speed ratio voted at 1.0: exact on both sides in
-three cases of four, and three frames early on both sides in the fourth. The
-smoke test checks a copy cut at five seconds lands within a second of it.
-That is the accuracy to expect at 5 fps; the boundaries are the walk's, not
-the editor's. When the ratio is voted at anything but 1.0 the source-side span
-is not to be trusted and the line says so. On footage that barely moves or
-repeats, the times can be off by a minute or more while the match itself is
-right; see [Limits](#limits).
+| Field | What it records |
+| --- | --- |
+| `settings.comparison_args` | Actual C flags, including the scanner's `-b 0.1 -d 9000 -c 60000` with the default coarse filter. |
+| `settings.crop_mode`, video `crop_mode`, `tool.detector.mode` | Selected `motion`, `black` or `disabled` bar-crop mode. Extra fixed views and their evidence are described under [crop fallback](#optional-fixed-5-crop-fallback). |
+| `settings.analyze`, `tool.analysis` | Whether analysis was enabled, plus current analysis code and recipe. |
+| `tool` | Binary SHA-256 and scanner, detector and signature-producer code identities. |
+| Video `content_hash` | BLAKE2b-128 identity of the video content. |
+| Video `signature` | Filename, SHA-256, stored detector version and original ffmpeg version. Cache hits retain the original producer version; missing legacy identities stay unknown. |
+| Video `analysis` | Status, recipe, original FFmpeg version, summaries, intervals and cached artifact SHA-256. |
+| Hit `assessment` | Source/candidate span measurements, separate content/position notes and `review_recommended`. |
+| Hit view evidence | Exact source/candidate view, crop and signature used; fallback retains both directional measurements. |
+| `jobs_requested` | Requested comparison workers; 0 means automatic. C logs the effective count after capping it to available cores. |
+| `path_base` | Resolution base for the original input paths. The record keeps those supplied paths; the renderer makes links relative to the HTML. |
 
-`--no-coarse-filter` passes `-d 10001` to the comparison, which turns off the
-coarse filter described under [Options](#options). It is for checking the
-filter, not for everyday use. On the benchmark corpus the filter kept every
-true match and took about two thirds off the comparison time. On the first
-independent validation set it missed 7 of 256 matches, all on a sunset shot
-from a locked-off camera and 5 of them through a bar-detector fault since
-fixed, and turning it off brought those back along with 204 false ones:
-clips of 10 and 20 s, and an 8 s opening, reported inside unrelated videos
-at 40 to 100 per cent. For short sources the filter is a
-guard, so off is not the safe side. Expect the comparison, the whole cost
-once the signatures are cached, to take about three times as long;
-fingerprinting is unaffected. The JSON record says which way a run was made,
-in `settings.coarse_filter`, and so does the page.
+Recording SHA-256 reads signatures even on cache hits; it does not decode or
+rehash unchanged videos. Older motion/disabled records remain readable.
 
-The signature store, a SQLite index beside a directory of `.sig` files,
-identifies a video by what it contains, so a renamed, moved or copied file
-keeps its signature and a second run over an unchanged folder reads no video
-at all; the smoke test holds it to that. Several tools share one store when
-they are given the same `--db` and the same `--sig-dir` and use the same
-`fps` and bar setting, which are part of a signature's identity; the index
-names files relative to the directory, so the index alone finds nothing, and
-the directory alone cannot rebuild the index, since the crop applied and the
-duration live only there. New signatures are validated at a temporary name,
-then published with a unique `.gen-<id>.sig` filename. The index switches to
-that file in a short transaction. A failed `--overwrite` keeps the old file
-and row; active scans can continue reading their original signature. Rebuilds
-can leave unreferenced generations in this cache; there is no automatic garbage
-collection. Keep the index with the directory and use the index to select
-signatures, rather than comparing every generation found by a glob.
+</details>
 
-Fixed views use crop recipe key `fixed5-1`, separate from motion `3`, black
-`black-1`, and uncropped signatures. This uses the existing schema 2 key without
-migration or invalidating existing views. The historical column `detector`
-also holds the deterministic crop recipe version; `fixed5-1` does not claim
-that bars were detected.
+### Are these two videos the same
 
-Concurrent producers on one machine use a file lock per cache key, recheck the
-cache after waiting, and do not hold a SQLite write transaction during ffmpeg.
-Initialization has its own brief lock. Lock files live beside the index in
-`.<index-name>.locks`; do not remove them while producers are running. This
-requires both current producers to share the same index and directory on a
-local filesystem; cross-machine/network-filesystem locking is not promised.
-Each scan owns its comparison lists. Source size, timestamps and file identity
-are checked from hashing through decoding; a change discards that attempt.
-The unchanged-file fast path still trusts size and mtime, so deliberately
-restoring both can evade it; use `--overwrite` to force reidentification.
+**For direct C output, use coverage and visible content to screen duplicate
+candidates. Do not use `score` or `whole` as proof.** The CSV has one row per
+pair with a reported match; zero-score pairs are omitted. A missing row alone
+does not tell you whether the pair was compared—check the run's completion.
 
-FPS names now preserve the exact float key. Unambiguous integer-fps cache
-entries remain usable; old rows that shared a rounded filename are invalidated
-as a group. Bar detector version 3 selects the first video track consistently
-with signature generation, accounts for display rotation, and treats a failed
-sampling window as a file failure. Its motion thresholds are unchanged, but
-its new identity deliberately rebuilds older cropped signatures once. Uncropped
-signatures keep their existing detector-independent identity. The cheap cache
-check validates supported header flags and byte counts; full data validation
-is performed by the C loader when comparing.
+| Read first | Meaning | How to use it |
+| --- | --- | --- |
+| `matchframes` and both signature frame counts | Matched frames relative to each file's length | For the library workflow, screen with `matchframes / min(frames A, frames B) >= 0.40`. Read the denominators from signature headers; C does not apply this rule. |
+| `begin` / `end` for each file | First and last accepted matched frames; `end` is inclusive | Find the shared footage and inspect both boundaries. |
+| `framerateratio` | Voted speed of the second clip relative to the first | Values other than 1.0 make coverage and positions less reliable. |
+| `whole` | The walk reached a beginning and an end, possibly in different files | A shared opening/ending can set it to 1 even when the rest is unrelated. |
+
+**Example: a resized copy with five seconds trimmed from each end.** Both
+signatures were sampled at 5 fps; the original was 320×180 and the copy 240×136.
+
+| Value | Interpretation |
+| --- | --- |
+| `matchframes = 550`; shorter signature = 550 frames | The shorter clip matches end to end. |
+| `begin 1 = 5.00`, `end 1 = 114.80` | The match starts five seconds into the original. |
+| `begin 2 = 0.00`, `end 2 = 109.80` | It starts at the beginning of the trimmed copy. |
+| `framerateratio = 1.0` | No speed difference was voted for this match. |
+
+**Counterexample:** two unrelated benchmark clips sharing a 70-second ad had
+`whole = 1`, 351 matched frames and a score higher than any genuine duplicate.
+The shared ad was real; treating the entire videos as duplicates would be wrong.
+
+<details>
+<summary>CSV reference: all numeric columns and the raw example</summary>
+
+The first two fields name the signature files. The remaining columns are:
+
+| Column | Meaning |
+| --- | --- |
+| `score` | Votes for the winning alignment, measured from whichever file is first. Not a length or confidence score. |
+| `matchframes` | Frames of the second clip covered by the walk, including up to three tolerated bad frames at each end. At a speed ratio other than 1.0 it counts the slower clip's frames. |
+| `goodframes`, `totalframes` | Numerator and denominator of the `-b` test; a stricter `-b` can be applied to a finished CSV. |
+| `offset` | Seed pair position inside its Hough window. A diagnostic, not the shift between the files. |
+| `framerateratio` | Voted speed of the second clip relative to the first, on a grid of thirtieths. |
+| `meandist` | Mean frame distance over the match; lower is closer. |
+| `time 1 [s]`, `time 2 [s]` | Seed frame times inside the match, not its endpoints. |
+| `begin 1 [s]`, `end 1 [s]`, `begin 2 [s]`, `end 2 [s]` | First and last frames accepted in each file, expressed in seconds at the sampling rate. |
+| `whole` | 1 when the walk reached a beginning and an end; they need not belong to the same file. |
+
+The example above is this raw row:
+
+```csv
+original.bin,reupload.bin,1056,550,550,550,-26,1.000000,12.57,6.00,1.00,5.00,114.80,0.00,109.80,1
+```
+
+Comparison runs across cores and rows arrive as they finish; do not assume
+fixed row order or which file appears first. `score` and `offset` depend on
+orientation. Interpret each file's boundaries using its filename, not row
+position; the matched count and per-file boundaries are unchanged by orientation.
+
+Paths containing commas, quotes or line breaks are CSV-quoted, with inner
+quotes doubled. Use a CSV parser. CSV is the only C output; the old `beautiful`
+tree was removed in build 8. `render_report.py` provides the readable view for
+scanner JSON, not raw C CSV.
+
+</details>
 
 ## Limits
 
-Measured ones. Each is either in a test or in
-[benchmark.md](benchmark.md); the synthetic ones were checked with build 5.
+Each item explains the problem, the observed conditions, and what you can do.
+The figures come from tests or [benchmark.md](benchmark.md). The short-clip
+synthetic measurements below were checked with build 5; later validation
+results are identified separately. These are observations on those materials,
+not guaranteed boundaries for every video.
 
-**Short clips are missed silently.** At 5 fps on synthetic clips, a clip
-matches a copy or a half-width re-encode of itself from 10 frames, 2 s. An
-excerpt inside a longer clip is found end to end from 50 frames, 10 s, only
-partially between 15 and 40 frames, and not at all below that. Real footage
-with less texture needs more. Nothing reports this; the pair simply does not
-appear. Raise `fps` if the library holds short clips.
+### 1. Missed matches: short clips are missed silently
 
-**A source under about two minutes can be found in footage it is not in.**
-"Does their video contain my clip" reports a candidate when the match covers
-40 per cent of the source, and at `-x 290` two frames that share only a
-light layout, a dark sky over a lit foreground say, count as a match.
-Between two unrelated videos there can be a stretch of about 40 s in which
-every frame is just close enough. On the second validation set and a length
-test on its sources, sources cut from two night timelapses and a basketball
-video game, footage with that kind of layout, were reported inside unrelated
-videos of a similar layout at every length measured from 10 to 60 s, in 5 to
-10 per cent of the unrelated candidates; at 90 s in 1.5 per cent, all just
-over the line at 40 to 45 per cent; at 120 s and at five minutes in none.
-Sources of other material almost never were: 1 false match over all the
-lengths. `meandist`, lower is closer, runs high on these matches, but no
-ceiling on it removed them without also losing reframes and copies cropped
-differently, so nothing filters them out. When a source is short and its
-picture is plain, look at the match on the page before you act on it; the
-page plays both videos at the join.
+A very short excerpt can be absent from the results without an error or a
+warning that this particular match was missed.
 
-**Featureless footage matches nothing, itself included.** Synthetic solid
-colours and test patterns compared against each other produced no row at all
-at the defaults, and neither did a solid colour against its own half-width
-re-encode. A static but textured clip, colour bars, did match its letterboxed
-copy end to end. So static footage was not seen to cause false positives,
-but a genuine duplicate that is nearly featureless can be missed outright.
-Real low-motion footage sits in between. On the first validation set a sunset
-from a locked-off camera and a night sky were recognised in their own copies,
-and a 10 s clip of the sunset was missed inside other material; where
-matches land in such footage is the next limit. A talk show at a dinner
-table behaved like any other footage.
+**Why this happens and what was measured**
 
-**On footage that barely moves or repeats, the start and end can be wrong;
-whether it matched is still right.** When the picture looks the same at
-different moments, a shot that barely moves, a loop, a court seen from a
-fixed camera, the comparison can line the two files up at a moment that
-looks right but is not. On the validation sets, times off by more than a
-few seconds came only from such footage, and most often when the copy had
-also been changed, sped up or reframed: on the second set a slide talk
-against its 1.25x copy was placed 18 to 30 s off, a 10 s clip of a
-basketball video game 107 s off inside the game's 1.25x copy, and a 20 s
-clip of a night timelapse 81 s off inside a vertical reframe; on the first
-set a sunset from a locked-off camera was placed up to 90 s off. Every one
-of those matches was a true one: the
-answer to "are these the same video" or "does their video contain my clip"
-was right, and only the times were wrong. One case goes further: when their
-video holds another moment of the same still shot, a clip of that shot is
-found there too, as a clip of the sunset was, 50 s away from where it was
-cut. On such footage, take the times as a hint and check them on the page.
+The comparison needs enough sampled frames to establish a match. At **5 fps**,
+the synthetic tests found:
 
-**A shared opening is a match, and coverage cannot tell it from a copy.**
-Two unrelated 60 s clips with the same 8 s opening matched on those 43 frames,
-14 per cent of either, so the 40 per cent rule leaves them alone. The same
-opening on two 20 s clips is 43 per cent, and the rule calls them duplicates.
-Coverage measures how much is shared, not what: the benchmark's separation
-holds because its advertisement is short against the body it is attached to,
-and an insert longer than about two minutes on a five minute body would turn
-it the wrong way round. The boundary columns say where the shared part sits,
-an opening landing at the start of both; use them.
+| Comparison | Sampled length | Observed result |
+| --- | --- | --- |
+| A clip against its identical or half-width re-encoded copy | From 10 frames, about 2 s | Matched |
+| An excerpt inside a longer video | From 50 frames, about 10 s | Matched end to end |
+| An excerpt inside a longer video | 15–40 frames, about 3–8 s | Only part of the excerpt matched |
+| An excerpt inside a longer video | Fewer than 15 frames, under 3 s | No match reported |
 
-The rule of thumb: two videos are called the same once the longest stretch
-they share reaches 40 per cent of the shorter one, so two episodes of a
-series meet it only when an episode is shorter than two and a half times
-the longest stretch they share, the opening say. The opening and the closing
-do not add up, since only the longest shared stretch counts. On the second
-validation set, five minute cuts of two episodes that both start with the
-same 90 s title sequence, with the same advertisement put in front of each,
-came to 37.8 per cent; whole episodes of that series, 25 to 30 minutes long,
-share 5 to 6 per cent.
+Real footage with less visual detail can require a longer excerpt. These
+measurements do not establish a precise cutoff for every length or scene.
 
-**Copies at another speed are found, to the ratio's grid.** Since build 7
-the walk keeps the two clips in step at the ratio the alignment voted, so a
-1.25x and a 0.8x copy of a 60 s synthetic clip both come back whole, 240 of
-240 and 300 of 300 frames, where build 6 lost the first within a few frames.
-The ratio is voted on a grid of thirtieths, so a position on the faster side
-can be off by the length of the match times the gap between the true ratio
-and the grid: the 0.8x copy was placed 2.6 s in where 0 is right. And
-`matchframes` counts the frames of the slower clip, so `find_reuse.py`,
-which divides by the source's frame count, reads 80 per cent for a 1.25x
-copy that holds all of the source; it says so on the line. Build 6 also
-voted the wrong ratio for a short quotation, 0.07 for a 12 s extract inside
-other material, and misplaced its source-side span; that came from the
-candidate scan covering only half of the accumulator, and the same
-extract now votes 1.0 with the span exact.
+**What you can do**
 
-**A short clip inside a sped-up copy can come back at a ratio of 1.0.** On
-the two validation sets every 1.25x copy of a whole source was voted at 0.80
-and placed exactly. A 10 or 20 s clip inside such a copy was found every
-time, 29 of 29, but 13 of them came back at 1.0, all on footage whose frames
-two seconds apart still count as alike: a still shot, loops, timelapses,
-slides, a video game and one news clip. The comparison keeps the longest of
-its candidate alignments. At 1.0 a 10 s clip is walked in 50 steps, one per
-frame of its own, and ends 2 s out of step with their copy; at the right
-ratio of 0.80 it takes 40 steps and stays in step. On such footage both
-walks hold, so the longer, wrong one wins. The answer is still right. What
-is wrong: the start in their video is off by up to a fifth of the clip, 2 s
-for a 10 s clip and 4 s for a 20 s one; the line does not say that their
-copy is sped up; and coverage reads 100 per cent rather than 80. Two clips
-of repetitive footage were placed much further off, which is the limit on
-footage that barely moves or repeats, above. Left as it is on purpose: the
-answer is right and the times are close.
+- Try a higher `fps` when searching for short excerpts, and regenerate both
+  source and candidate signatures at that same rate.
+- Check missed excerpts manually. Raising `fps` is not a guaranteed fix for
+  footage with little visual detail; see item 3.
 
-**One match per pair.** The program says whether a source was used and
-where its longest use sits. It does not list every use: a source cut into
-their video in three places is reported once, at the longest of the three.
-That is the intended scope, not a gap to be closed. It reaches duplicates
-too: two copies of one video that each had something spliced in at a
-different place share their body in pieces, and if no piece reaches 40 per
-cent of the shorter file the pair is not reported. On the two validation
-sets 8 of 11 such pairs, whose longest shared piece was 38.7 per cent of the
-shorter file, were not.
+### 2. False matches: short sources can appear to match unrelated videos
 
-**Bars on a still picture.** When a video barely moves at all, the default motion
-detector says it cannot tell and nothing is cropped. Up to version 1 it went
-wrong on footage that is still apart from a short moving stretch, a clip
-spliced into a static shot say, taking still rows of the picture for bars:
-on the first validation set a sunset with a 10 s clip in it lost 482 of its 1080
-rows, and two more files lost 274 and 136, none of them with bars. Version 2
-also asks that a bar look the same in every sampled window, which leaves
-those rows alone and changes nothing on the 96 videos it was tuned on. What
-remains: when the moving stretch's still edges show what the still shot
-shows there, black in both say, nothing sampled tells them from a bar; and
-still picture along a whole edge of moving footage reads as a bar, as a city
-skyline under a night timelapse did, 103 rows of it. On the second set,
-material version 2 was not fixed on, it cropped none of 116 copies wrongly.
+A reported match can be wrong when a short source and an unrelated candidate
+have similar light/dark layouts.
 
-**A slide talk with bars added may not be found at all.** When the middle of
-the frame barely moves for the whole video, as in a talk that stays on its
-slides, the motion detector cannot tell bars from picture and crops nothing. A
-copy with bars added at the top and bottom is then compared with its bars
-on, and the bars shift the picture inside the frame. On the second
-validation set a slide talk's two copies with bars matched none of its ten
-other copies, not a single frame, in either question; with the bars cropped
-by hand, the same copy matched the original on 1500 of 1500 frames. It is
-not every still video: the first set's two still shots, a sunset and a night
-sky, were found with their bars on. Do not read a miss against a barred copy
-of a video that barely moves as a clean result.
+**Why this happens**
 
-For plain black bars on this kind of footage, explicitly choose
-`--crop-mode black` in `find_reuse.py` (`crop_mode = "black"` in its TOML),
-or `--mode black` in `detect_bars.py`. Motion remains the default; there is
-no automatic fallback. `--no-crop-bars` disables either mode. Both source
-and candidate use the chosen mode, with separate cache keys, so switching
-back to motion reuses its existing signatures.
+- The reuse scanner reports a match at 40% of the **source's** frame count.
+- At `-x 290`, frames with a similar layout, such as a dark sky above a lit
+  foreground, can be accepted even when their content is unrelated.
+- An unrelated video can supply roughly 40 seconds of sufficiently similar
+  frames. That is enough to pass the threshold for a short source.
 
-Black mode uses ffmpeg's `cropdetect` on full-resolution, full-range grey,
-with black level 16/255 and no bright outliers. It keeps the union of picture
-bounds across the same sampled windows as motion, rounds toward retaining
-picture, and only crops top/bottom. All-dark or excessively narrow picture
-is uncertain and remains uncropped. Near-black compressed bars and a still
-textured copy are covered by generated tests, including a complete cold/hot
-scan. Dark picture edges can still be mistaken for bars, lettering stops the
-crop, and changes outside the samples can be missed. Review the crop; JSON,
-terminal and HTML carry this warning. The [third independent set](benchmark.md#third-independent-validation-2026-09-16)
-now measures motion 3 and black-1 on newly acquired footage. Black recovered
-some plain barred still copies, but also removed dark picture from a dock shot;
-lettered copies still failed. Motion over-cropped an unbarred short landscape.
-Neither mode is universally correct. The archived slide original remains untested.
+**What was measured**
 
-**A band that never changes is cropped like a bar.** The motion detector looks for
-rows that do not move, so a news ticker or a caption strip across the whole
-width that stays the same for the whole video comes off with the bars: on the
-second set a 119-row ticker, on every copy that carried it whole. Cropped
-the same way on every copy, it cost no match; what it takes out of the
-comparison is whatever the band shows. A scoreboard over part of the width
-is not cropped, since the rest of those rows move.
+A length test on the second validation set used two night timelapses and a
+basketball video game. For sources with these simple layouts:
 
-**Vertical reframes are not supported.** A 16:9 video made into 9:16, the
-picture across the middle over a blurred enlargement of itself, is a common
-way to repost to phones, and nothing here undoes it: the blurred backdrop is
-most of the frame and is compared as if it were the picture. On the second
-set such copies were found in 63 of 106 same-video pairs and 14 of 27
-contains-my-clip matches, and never for a slide talk, a letterboxed source or
-a clip with a ticker, so a miss against a reframed copy says nothing. Other
-ways of turning a video on its side, a crop to 9:16 say, were not tested.
-Bars at the left and right, a 4:3 picture in a 16:9 frame say, are not looked
-for at all.
+| Source length | Unrelated candidates reported as matches |
+| --- | --- |
+| 10–60 s | About 5–10% |
+| 90 s | About 1.5%, with reported coverage of 40–45% |
+| 120 s and 5 min | None in this test |
 
-**Validated twice, on sixteen sources it was not tuned on.** The first set,
-a talk show, an animation, sports, a star field, a sunset and a night sky,
-72 files in twelve kinds of edit, compared once at the defaults: 382 of 396
-same-video pairs found with none of 2160 other pairs reported, and 249 of
-256 contains-my-clip matches found with 3 false ones among 1184 other pairs.
-21 of those 24 errors involve the sunset, a locked-off shot that barely
-moves, and 17 a file cropped as described above. With version 2 of the
-detector the same set gives 394 of 396 and 254 of 256 with 2 false, but that
-detector was fixed by looking at this set, so those numbers are not
-independent. The second set, ten sources and 116 files with every setting
-frozen, detector version 2 included: 575 of 643 same-video pairs found with
-none of 6027 other pairs reported, the misses being vertical reframes, the
-barred copies of a still slide talk and the structural pairs above; and 350
-of 369 contains-my-clip matches found, but with 73 false ones among 2995
-other pairs, all from its sources of 20 s and less; a length test on the same
-material later found the risk up to about two minutes, as the limit above
-says. benchmark.md has the tables. The settings held for the first question
-on material they were not fitted to. Neither set says what they will do on
-yours.
+Other source material produced one false match across the tested lengths.
+The absence of false matches at 120 seconds in this test is not a safe-length
+guarantee.
 
-**Performance.** The second signature of every pair is read and parsed from
-disk again, so a file is parsed once per comparison it takes part in.
+**What you can do**
+
+- Review short-source matches in the HTML report, especially when the picture
+  has a simple layout.
+- Do not use `meandist` as an automatic fix. These false matches tended to have
+  higher distances, but every tested cutoff that removed them also lost real
+  reframed or differently cropped copies. No such filter is applied.
+
+### 3. Missed matches: nearly featureless footage can fail to match even itself
+
+A genuine copy may produce no result when the picture contains too little
+visual detail.
+
+**Why this happens and what was measured**
+
+Lack of detail and lack of motion are different problems:
+
+| Tested footage | Observed result |
+| --- | --- |
+| Pairs of different synthetic solid-colour or test-pattern clips | No rows at the defaults; a solid colour also failed against its own half-width re-encode |
+| Static but textured colour bars | Matched a letterboxed copy end to end |
+| Real locked-off sunset and night sky, first validation set | Their copies were recognised |
+| A 10 s excerpt of that sunset inside other footage | Missed |
+| A talk show at a dinner table | Behaved like the other ordinary footage |
+
+The static synthetic cases did not produce false matches in that test;
+this does not establish that all static footage is safe. Low-motion footage
+can also have the position errors described in item 4.
+
+**What you can do**
+
+- Treat a miss on nearly featureless footage as inconclusive.
+- Inspect the footage manually. More samples cannot create visual detail that
+  the picture does not contain; there is no validated universal setting fix.
+
+### 4. Position errors: a correct match can still have wrong start and end times
+
+Finding the right pair of videos does not guarantee that the reported segment
+is at the right place.
+
+**Why this happens**
+
+- Still shots, loops and repeated views can look alike at different moments.
+- The comparison can align those moments incorrectly, especially when the
+  copy is also sped up or reframed.
+- Another moment of the same still shot can be indistinguishable from the
+  exact excerpt you are searching for.
+
+**What was measured**
+
+Examples from the first and second validation sets:
+
+| Material and edit | Reported position error |
+| --- | --- |
+| Slide talk against its 1.25x copy | 18–30 s |
+| 10 s basketball video-game excerpt inside a 1.25x copy | 107 s |
+| 20 s night-timelapse excerpt inside a vertical reframe | 81 s |
+| Locked-off sunset | Up to 90 s |
+| Sunset excerpt matched to another moment of the same still shot | 50 s from its actual cut position |
+
+The first four examples were true matches with incorrect positions. They do
+not imply that every match on repetitive footage is genuine; false matches
+are a separate risk, as described in item 2.
+
+**What you can do**
+
+- Use the timestamps as starting points for inspection, not exact edit points.
+- Play both videos and verify the beginning and end of the shared material.
+- Check low-change/position notes when available. A ratio of `1.0` does not
+  guarantee correct alignment.
+
+### 5. Duplicate ambiguity: shared openings can pass the coverage threshold
+
+Two different videos can qualify as duplicate candidates because they share
+an opening, advertisement or another sufficiently long segment.
+
+**Why this happens**
+
+Coverage measures **how much is shared**, not **what is shared**. For the
+same-video question, the rule uses the longest shared stretch divided by the
+shorter file's frame count. Separate openings and closings are not added up.
+
+**What was measured**
+
+| Shared material and video length | Coverage / outcome |
+| --- | --- |
+| Same 8 s opening on two otherwise unrelated 60 s clips | 43 matched frames, about 14%; below the 40% rule |
+| Same opening on two 20 s clips | About 43%; passes the rule |
+| Five-minute cuts of two series episodes, sharing a 90 s title sequence and the same inserted advertisement | 37.8%; below the rule |
+| Whole episodes of that series, 25–30 min long | About 5–6% shared |
+
+At the 40% threshold, a shared stretch reaches the rule when the shorter
+video is no more than about 2.5 times as long as that stretch. In the
+benchmark's trimmed-video construction, advertisement-only pairs and the
+weakest true-copy pairs both reached 40% when the shared advertisement was
+two minutes long. Longer advertisements reversed that separation.
+
+**What you can do**
+
+- Inspect the boundary columns or HTML players to see whether the match is
+  only an opening, closing or advertisement.
+- Check the programme content before treating the files as duplicates.
+  Coverage alone cannot distinguish these cases.
+
+### 6. Speed changes: timestamps and coverage can be distorted
+
+A sped-up or slowed-down copy can be found while its reported position or
+source coverage remains inaccurate.
+
+**Why this happens**
+
+- Speed ratios use a grid of thirtieths. A true ratio between grid points
+  causes alignment drift; the error grows with the match's length and the
+  gap between the true and selected ratios.
+- `matchframes` counts frames of the slower clip. The reuse scanner still
+  divides that count by the source's frame count, so its coverage is not
+  adjusted to the actual amount of source footage used at another speed.
+
+**What was measured**
+
+For a 60 s synthetic source, build 7 found both the 1.25x and 0.8x copies
+whole, with 240 and 300 matched frames respectively. Two limitations remained:
+
+| Case | Observed error |
+| --- | --- |
+| 0.8x copy | Start reported at 2.6 s instead of 0 because of the ratio grid |
+| 1.25x copy containing the whole source | Reuse-scanner coverage read 80% |
+
+Historical fixes should not be confused with these remaining limits: build 6
+lost the faster copy within a few frames and voted `0.07` for a 12 s quotation
+because its candidate scan covered only half the accumulator. That quotation
+now votes `1.0` with the correct source span.
+
+**What you can do**
+
+- Verify both boundaries when the reported speed ratio differs from `1.0`.
+- Do not interpret the reported coverage as an exact proportion of source
+  content at another speed. Speed-adjusted source coverage remains separate
+  planned work; changing the reporting threshold does not correct the measure.
+
+### 7. Speed detection: a short excerpt in a sped-up copy can report ratio 1.0
+
+The tool can find a real excerpt but fail to identify that the containing
+video has been sped up.
+
+**Why this happens**
+
+The comparison keeps the longest candidate alignment. On slowly changing
+footage, an incorrect normal-speed alignment can remain plausible for longer:
+
+| Alignment of a 10 s excerpt against a 1.25x copy | Walk behaviour |
+| --- | --- |
+| Reported ratio `1.0` | 50 steps; drifts about 2 s out of alignment |
+| Correct ratio `0.80` for this comparison direction | 40 steps; stays aligned |
+
+If both walks survive, the longer, incorrect one wins. This affected still
+shots, loops, timelapses, slides, a video game and one news clip whose frames
+remained similar two seconds apart.
+
+**What was measured**
+
+- On the first two validation sets, whole-source 1.25x copies were voted at
+  `0.80` and placed exactly.
+- All 29 tested 10/20 s excerpts inside such copies were found, but 13 reported
+  ratio `1.0`.
+- Typical start errors reached one fifth of the excerpt: 2 s for a 10 s clip
+  or 4 s for a 20 s clip. The output omitted the speed change and reported
+  100% coverage instead of 80%.
+- Two repetitive-footage cases were placed much farther away, as in item 4.
+
+**What you can do**
+
+- Check playback and boundaries even when the ratio says `1.0`.
+- Allow for short-excerpt timing errors when reviewing a sped-up copy.
+  Candidate ranking is intentionally unchanged; there is no automatic
+  correction for this case.
+
+### 8. Coverage limits: only the longest match is reported for each pair
+
+Repeated uses of one source appear once, and footage shared in several
+separate pieces can fail the coverage threshold.
+
+**Why this happens and what was measured**
+
+- A source inserted in three places produces one result: the longest match.
+  Listing every use is outside the tool's intended scope.
+- Different insertions in two copies can split their shared body into pieces.
+  The pieces are not summed; one piece must reach 40% of the shorter file to
+  pass the same-video rule.
+- On the first two validation sets, 8 of 11 such pairs were missed. Their
+  longest shared piece was 38.7% of the shorter file.
+
+**What you can do**
+
+- Inspect other parts of a matched candidate if you need every occurrence.
+- Treat a miss as inconclusive when the footage has been rearranged or
+  interrupted by insertions. This program does not provide a combined
+  coverage total across separate matches.
+
+### 9. Cropping errors: still picture edges can be confused with bars
+
+The default motion detector may leave real bars in place, or remove still
+picture content that resembles a bar.
+
+**Why this happens**
+
+- With almost no motion, the detector cannot distinguish bars from picture;
+  it reports uncertainty and leaves the video uncropped.
+- A still edge in otherwise moving footage can look like a bar.
+- A brief moving insert may not resolve the ambiguity if its edges look the
+  same as the surrounding still shot in every sampled window.
+
+**What was measured**
+
+| Detector / material | Observation |
+| --- | --- |
+| Version 1, first validation set | An unbarred sunset with a 10 s insert lost 482 of 1080 rows; two other unbarred files lost 274 and 136 rows |
+| Version 2 | Requiring consistent bar appearance across sampled windows fixed those cases without changing the 96-video tuning-set results |
+| A still city skyline below a moving night sky | 103 picture rows were mistaken for a bar |
+| Version 2, second validation set | No incorrect crops among 116 copies in that set |
+| Motion 3, third validation set | An unbarred short landscape was over-cropped; the older clean result was not a general guarantee |
+
+**What you can do**
+
+- Inspect the recorded crop when the picture has still edges or very little
+  motion.
+- Use `--no-crop-bars` to compare the full frames when automatic cropping
+  removes real picture content. This also leaves genuine bars in place.
+- For plain black bars on still footage, consider the explicit black mode
+  described in item 10 and check its crop too.
+
+### 10. Missed matches: added bars can hide a mostly static slide presentation
+
+A copy with top/bottom bars can be missed completely when the default detector
+cannot identify the bars.
+
+**Why this happens**
+
+- A nearly static centre gives the motion detector too little evidence to
+  distinguish the picture from its bars, so it crops nothing.
+- The added bars change the picture's position within the frame, making the
+  uncropped signatures harder to align.
+
+**What was measured**
+
+| Material | Observation |
+| --- | --- |
+| Second validation set: slide talk with bars added | Its two barred copies matched none of its ten other copies in either question |
+| The same copy after manually cropping the bars | Matched the original on 1500 of 1500 frames |
+| First validation set: sunset and night sky | Their barred copies were found; this failure does not affect every still video |
+| Third validation set: motion 3 and black-1 | Black recovered some plain barred still copies, but over-cropped dark dock picture; lettered copies still failed |
+
+The archived slide-talk original has not been retested with black mode.
+
+**What you can do**
+
+- Explicitly try `--crop-mode black` in `find_reuse.py`, or set
+  `crop_mode = "black"` in its TOML. The standalone detector uses `--mode black`.
+  There is no automatic switch from motion to black.
+- Review the proposed crop before trusting either a match or a miss. Dark
+  picture edges can be removed, lettering can prevent the crop, and changes
+  outside the sampled windows can be missed.
+- Use `--no-crop-bars` to disable either detector. Both sides use the chosen
+  mode; separate cache keys let you switch back to the existing motion
+  signatures.
+
+**What the black-mode workaround checks**
+
+- ffmpeg `cropdetect` examines full-resolution, full-range grey with a black
+  threshold of 16/255 and no bright outliers.
+- It keeps the union of picture bounds across the sampled windows, rounds
+  toward retaining picture, and crops only the top and bottom.
+- All-dark or excessively narrow picture is uncertain and stays uncropped.
+- Generated tests cover near-black compressed bars and a still textured copy,
+  including cold/hot scans. These tests do not make the detector universally
+  correct; see the [third-set results](benchmark.md#third-independent-validation-2026-09-16).
+
+### 11. Lost content: an unchanging full-width band can be cropped away
+
+A news ticker or caption strip may be removed from the comparison together
+with the bars.
+
+**Why this happens and what was measured**
+
+- The motion detector looks for rows that do not change. A band spanning the
+  full width and staying unchanged throughout the video satisfies that rule.
+- On the second validation set, a 119-row ticker was removed from every copy
+  that carried it whole. Matching still worked because those copies were
+  cropped consistently, but the ticker's content was no longer compared.
+- A scoreboard covering only part of the width was retained because the rest
+  of those rows moved.
+
+**What you can do**
+
+- Inspect the crop if captions or overlays are important to your comparison.
+- Use `--no-crop-bars` when you need that content retained, and check how any
+  remaining bars affect the result.
+
+### 12. Unsupported transformations: vertical reframes and side bars remain difficult
+
+A missed match cannot rule out a copy that has been substantially reframed.
+
+**Why this happens**
+
+- A common 16:9-to-9:16 reframe places the original picture across the middle
+  of a blurred enlargement. The blurred background fills much of the frame
+  and is compared as picture; the tool does not undo this layout.
+- The bar detectors only inspect the top and bottom. Left/right bars, such
+  as pillarboxing a 4:3 picture into 16:9, are not detected.
+
+**What was measured**
+
+| Blurred vertical reframes in the second validation set | Matches found |
+| --- | --- |
+| Same-video pairs | 63 of 106 |
+| Contains-my-clip pairs | 14 of 27 |
+| Slide talk, letterboxed source or source carrying a ticker | None |
+
+Other transformations, such as cropping the picture directly to 9:16, were
+not tested in that set. Individual portrait, rotation and pillarbox successes
+in the third set do not establish general reframe support.
+
+**What you can do**
+
+- Review suspected reframes manually even when no match is reported.
+- Do not treat black mode or the fixed 5% top/bottom fallback as a general
+  solution for vertical layouts or side bars.
+
+### 13. Validation scope: benchmark results are not a general accuracy guarantee
+
+A setting that works on a validation set can still fail on your footage.
+
+**What the evidence covers**
+
+The first two independent sets used sixteen sources not in the original
+tuning set. Their historical results were:
+
+| Set | Same-video pairs found | False matches among other pairs | Contains-my-clip pairs found | False matches among other pairs |
+| --- | --- | --- | --- | --- |
+| First: 6 sources, 72 files, 12 edit types | 382/396 | 0/2160 | 249/256 | 3/1184 |
+| Second: 10 sources, 116 files, settings frozen with detector 2 | 575/643 | 0/6027 | 350/369 | 73/2995 |
+
+- The first set included a talk show, animation, sports, a star field, a
+  sunset and a night sky. Of its 24 errors, 21 involved the low-motion sunset
+  and 17 involved cropping errors; these groups overlap.
+- After detector 2 was fixed using that first set, its results improved to
+  394/396 same-video pairs and 254/256 contains-my-clip pairs, with two false
+  contains-my-clip matches. That rerun is development evidence, not an
+  independent validation.
+- The second set's misses included vertical reframes, barred still slides
+  and shared footage split by insertions. Its 73 false matches came from
+  sources of 20 s or less; the later length test found risks up to about two
+  minutes.
+- The [third independent set](benchmark.md#third-independent-validation-2026-09-16)
+  separately measured motion 3 and black-1 and found further crop, match and
+  position errors. Its footage was later reused to develop crop fallback
+  and visual analysis; those later runs are development regressions.
+
+**What you can do**
+
+- Read the dataset and version labels with each result in
+  [benchmark.md](benchmark.md); do not combine them into one accuracy claim.
+- Check representative examples from your own collection, including unrelated
+  videos and difficult edits, before relying on the results.
+- Treat a clean historical test as evidence for its tested material, not a
+  promise that the same failure cannot occur elsewhere.
+
+### 14. Performance limits: cached signatures still require comparison work
+
+Keeping signatures avoids decoding the videos again, but a large library can
+still take substantial time to compare.
+
+**Why this happens**
+
+- Candidate signatures are read and parsed again for each pair in which they
+  are compared; there is no shared cache of all parsed candidates.
+- Single-source comparisons share the loaded source across workers, but
+  still load each candidate. Full-library work grows with the number of pairs.
+
+**What you can do**
+
+- Keep the signature cache and its index to avoid repeating video decoding.
+- Plan for comparison time as the library grows. For long C comparison runs,
+  follow [Long runs](#long-runs) to record progress and resume interrupted work.
 
 ## Long runs
 
