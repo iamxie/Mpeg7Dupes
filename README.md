@@ -6,6 +6,7 @@ compares what the frames look like rather than what the files contain.
 
 - [What it does](#what-it-does)
 - [Install](#install)
+- [Quick start](#quick-start)
 - [The recommended flow](#the-recommended-flow)
 - [Reading the result](#reading-the-result)
 - [Limits](#limits)
@@ -80,76 +81,226 @@ decided to stand behind and `nightly-<commit>` daily builds of `master` that
 passed the same tests. `docker build -t mpeg7dupes .` builds an image with
 ffmpeg in it as well; `--build-arg SLOG_REF=` changes the slog pin.
 
-## The recommended flow
+## Quick start
 
-Three steps. `tools/find_reuse.py` does all three for the second question;
-for the first, do them yourself.
+Choose the task below, copy its commands, then open the HTML report. You can
+read [The recommended flow](#the-recommended-flow) later for the reasons
+behind the settings.
 
-**1. Generate one signature per video, all at the same rate.**
+Before starting, complete [Install](#install) and run these commands from the
+cloned `Mpeg7Dupes` directory. You need Python 3.11 or newer, plus `ffmpeg`,
+`ffprobe` and `mpeg7dupes` on PATH. The examples use the shipped
+`tools/find_reuse.toml`; if you have edited it, your settings apply instead.
+Replace the quoted video paths with your own. If you use uv, replace
+`python3` with `uv run`.
+
+Create a folder for the results once:
 
 ```sh
-ffmpeg -i input.mkv -vf "fps=5,signature=filename=input.bin" -map 0:v:0 -an -f null -
+mkdir -p reports
 ```
 
-Every signature must use the same `fps`. The filter emits one fingerprint per
-frame it receives and knows nothing about time, so fingerprint 300 sits at
-ten seconds in a 30 fps signature and at sixty in a 5 fps one; mixing rates
-compares different moments and finds nothing. 5 is the measured balance
-between storage, time resolution and the shortest clip that can be found;
-see [Limits](#limits) before going lower. Only binary signatures are read,
-never `format=xml`.
+### 1. If you want to find where one of your clips appears in other videos
 
-Crop bars off first. A letterboxed copy and a clean one do not line up,
-because the bar shifts the picture inside the frame; `tools/detect_bars.py`
-prints the crop for a video, and `find_reuse.py` applies it in the same
-ffmpeg pipeline that takes the fingerprint.
+Put the videos to search in `downloads/`, including any subfolders. Set
+`--source` to your original clip and `--candidates` to that folder, then run:
 
-**2. Compare.** One path per line in a list file:
+```sh
+python3 tools/find_reuse.py --source "mine.mp4" --candidates "./downloads" \
+    --sig-dir "./.signatures" --json "reports/reuse.json"
+python3 tools/render_report.py "reports/reuse.json" --out "reports/reuse.html"
+```
+
+Open `reports/reuse.html` in your browser. Each row pairs your clip with a
+candidate that reached the reporting threshold. Play both videos to check
+the shared footage; the players open shortly before the reported match.
+With the shipped settings, a hit covers roughly 40% or more of **your source
+clip**, not 40% of the candidate. The report shows the matched length and
+positions so you can check what was found. `reports/reuse.json` keeps the
+complete scan record for later use.
+
+### 2. If you want to check a folder of your clips against another folder
+
+Put your originals in `my_clips/` and the videos to search in `downloads/`.
+Keep the two collections in separate folders, then run:
+
+```sh
+python3 tools/find_reuse.py --source "./my_clips" --candidates "./downloads" \
+    --sig-dir "./.signatures" --json "reports/batch.json"
+python3 tools/render_report.py "reports/batch.json" --out "reports/batch.html"
+```
+
+Open `reports/batch.html`. Every original is searched for in every candidate;
+rows identify which original matched and where. A candidate may appear in
+several rows if it contains material from several originals. Originals are
+not compared against one another, and paths already in the source collection
+are skipped as candidates. For an all-pairs library comparison, use the
+[direct signature workflow](#comparing-a-whole-library-directly).
+
+### 3. If you want to check whether one video contains material from another
+
+Use a single file for each side:
+
+```sh
+python3 tools/find_reuse.py --source "original.mp4" --candidates "suspected-copy.mp4" \
+    --sig-dir "./.signatures" --json "reports/pair.json"
+python3 tools/render_report.py "reports/pair.json" --out "reports/pair.html"
+```
+
+Open `reports/pair.html` and compare the matched length with both video
+lengths. A hit means enough of `original.mp4` was found to reach the threshold;
+it does not establish that the two entire videos are identical. Swap the
+source and candidate paths to ask the question in the other direction.
+
+### 4. If a scan missed a copy that may have had its top and bottom cropped
+
+Run a separate scan with the optional 5% crop fallback:
+
+```sh
+python3 tools/find_reuse.py --source "mine.mp4" --candidates "./downloads" \
+    --sig-dir "./.signatures" --no-crop-bars --crop-fallback \
+    --json "reports/crop-check.json"
+python3 tools/render_report.py "reports/crop-check.json" --out "reports/crop-check.html"
+```
+
+Open `reports/crop-check.html` and inspect the rows labelled **Needs review:
+5% crop fallback**. These are extra leads found by the fallback within this
+scan. Check both players before accepting them: trying cropped views can
+also add false matches. This option handles a specific crop hypothesis;
+a miss still does not rule out an edited copy.
+
+### What to do with the report
+
+| What you see | What to do |
+| --- | --- |
+| A match row | Play both sides to confirm the footage and its start/end positions. A row is a lead, not proof that the entire files are duplicates. |
+| No candidate reached the threshold | Check that the scan completed. A completed scan found no qualifying match; it does not rule out shorter or unsupported edits. |
+| Content or position notes | Inspect the visible details or boundaries as requested. Dark/low-change percentages describe sampled footage, not match confidence. |
+| Needs review: 5% crop fallback | Manually verify the extra lead before accepting it. |
+| Analysis incomplete | Some visual-property measurements failed. Completed comparisons remain available; inspect the affected videos and the failure reasons. |
+| Failed or not compared files | Fix the reported problem and rerun. These files have not been cleared as non-matches. |
+
+The scanner exits with status 0 for a complete run, 1 for partial file or
+analysis failure, and 2 for a setup or comparison failure. Check errors before
+treating a run as complete; [Reading the result](#does-their-video-contain-my-clip)
+explains which partial results remain usable.
+
+To search again, rerun the same command after adding videos or changing the
+source path. Keep the entire `.signatures/` directory, including its index:
+unchanged signatures and visual analyses are reused. Keep the original video
+files available too; the HTML links to them rather than embedding them.
+
+## The recommended flow
+
+The quick start runs `find_reuse.py` to create signatures, compare videos
+and save a JSON record, then renders that record as HTML. This section
+explains why the commands use separate source/candidate roles, keep the
+defaults, and save both a JSON record and a playable report.
+
+### Why source and candidate have different roles
+
+The scanner asks how much of **the source** occurs in each candidate. It
+reports a pair when:
+
+```text
+matched frames / frames in the source >= 0.40
+```
+
+For example, finding about 30 seconds of a 60-second source inside a
+10-minute candidate passes that rule; finding 30 seconds of a 10-minute
+source inside a 60-second candidate does not. That is why the quick start
+puts the clip you are looking for in `--source`, and why reversing two files
+can change the result. Coverage is approximate, especially at different
+speeds; it is a screening threshold, not an exact measurement of reused time.
+
+A source folder repeats this question for every original. It does not turn
+the operation into an all-pairs search within that folder.
+
+### Why the quick start keeps the matching defaults
+
+The examples leave these settings in `tools/find_reuse.toml`. Command-line
+options override the file; the file overrides built-in defaults.
+
+| Setting | Why it is used |
+| --- | --- |
+| `fps = 5` | Both sides need the same sampling rate. Five frames per second is the measured balance between cost, time resolution and short-clip detection. Raising it generates larger signatures; lowering it can lose short excerpts. |
+| `min_coverage = 40` | A source-based reporting threshold supported by the existing measurements. It separates many incidental shared segments from longer reuse, but short, simple-looking sources still produce false matches. |
+| `thxh = 290` | The measured frame-similarity tolerance, passed to C as `-x 290`. Higher values accept more dissimilar frames and can add false matches. |
+| `crop_bars = true`, `crop_mode = "motion"` | Bars change the arrangement of the picture. Removing detected top/bottom bars before fingerprinting can make a bordered copy align with its original. Uncertain detections leave the picture uncropped. |
+| `coarse_filter = true` | Skips unlikely segment pairs before detailed comparison. It saves time and has also suppressed short-source false matches in the measured sets. Turning it off is a separate experiment, not a general accuracy upgrade. |
+| `analyze = true` | Adds sampled darkness/change measurements and matched-span explanations. It helps decide what to inspect without changing match decisions. |
+
+The sampling rate matters because a signature contains one fingerprint per
+sampled frame: frame 300 represents ten seconds at 30 fps and sixty seconds
+at 5 fps. Matching different rates would compare incompatible timelines.
+The wrapper samples both sides consistently. Only binary signatures are
+supported, not `format=xml`.
+
+Cropping needs inspection too: static or dark picture edges can confuse bar
+detection. `--crop-mode black` explicitly selects a different detector for
+plain black bars on still footage; it can also crop dark picture content.
+The tool does not switch modes automatically. The quick start's crop retry
+uses `--no-crop-bars --crop-fallback` to establish a full-frame baseline before
+trying the fixed crop, as explained [below](#optional-fixed-5-crop-fallback).
+
+The measurements behind these choices, and the material on which they fail,
+are in [benchmark.md](benchmark.md) and [Limits](#limits). The defaults are a
+starting point, not a guarantee for every kind of footage.
+
+### Why save JSON, render HTML and keep the cache
+
+`--json` keeps the run's inputs, settings, completed comparisons, failures
+and measured matches. `render_report.py` turns that record into side-by-side
+players so you can check the footage and the reported boundaries. Rendering
+does not repeat the scan, and neither output modifies your videos.
+
+`--sig-dir "./.signatures"` gives all the quick-start examples one reusable
+store. Decoding dominates the first scan's cost, so the scanner keeps both
+signatures and visual profiles. Repeating a scan with unchanged videos and
+settings reuses them; changing a crop mode or sampling rate may require new
+signatures. Keep the index with the cached files. There is no need to add
+`--overwrite` for an ordinary rerun.
+
+### Comparing a whole library directly
+
+For an all-pairs search, the C program reads a list of signatures. This is
+the lower-level workflow behind the other question in [What it does](#what-it-does).
+Generate one signature per video, with the same sampling rate and a consistent
+crop policy. For an uncropped video:
+
+```sh
+mkdir -p sig
+ffmpeg -nostdin -i input.mkv -vf "fps=5,signature=filename=sig/input.bin" \
+    -map 0:v:0 -an -f null -
+```
+
+Repeat with a distinct output filename for each video. If bars need removing,
+`tools/detect_bars.py` can supply a crop to apply before `fps,signature`; the
+scanner automates this step, but the raw ffmpeg command above does not.
+Then compare the generated files:
 
 ```sh
 find sig -name '*.bin' | sort > siglist.txt
 mpeg7dupes -l siglist.txt > dupes.csv 2> run.log
 ```
 
-The defaults since build 4 are the measured settings, `-f csv -m longest
--x 290 -i 0 -k 1 -b 0.5`; on an older build, spell them out. Results go to
-stdout and the log to stderr. Every pair in the list is compared, so the work
-grows as n²/2: 600 signatures means 179,700 comparisons, spread across every
-core.
+`dupes.csv` contains measured matches; `run.log` records progress and errors.
+Every pair in the list is compared, so 600 signatures mean 179,700 pairs.
+The current C defaults include `-f csv -m longest -x 290 -i 0 -k 1 -b 0.5`;
+the reuse scanner uses `-b 0.1` for its source-excerpt question.
 
-**3. Decide.** For "the same video", keep the pairs where
+To screen for duplicate candidates, use the shorter file as the denominator:
 
-```
-matchframes / min(frames in file A, frames in file B) >= 0.40
-```
-
-The frame counts are in each signature's header and are not in the CSV.
-That threshold sits in the empty band the benchmark found between pairs that
-merely share an advertisement and genuine duplicates; the reasoning and its
-limits are in [benchmark.md](benchmark.md).
-
-For "does their video contain mine":
-
-```sh
-uv run tools/find_reuse.py --source mine.mp4 --candidates ./downloads
+```text
+matched frames / min(frames in file A, frames in file B) >= 0.40
 ```
 
-```
-sources     1
-candidates  128, signatures cached in ./downloads/.signatures
-  signatures 128/128
-
-./downloads/a.mp4   used mine.mp4, starting at 02:53
-./downloads/k.mp4   used mine.mp4, starting at 01:10
-
-scanned 128 candidates against 1 source, 2 matches over 40%
-```
-
-It needs ffmpeg, `mpeg7dupes` on PATH or `--mpeg7dupes`, and uv or a
-Python 3.11 interpreter. `--source` also takes a folder; sources are compared
-against every candidate and never against each other. `--json` keeps the
-whole run, and `tools/render_report.py` turns that file into a page that
-plays the two videos side by side, parked just before the join.
+The counts come from each signature's header; the C CSV does not include
+them or apply this coverage rule for you. That makes this a lower-level
+workflow requiring post-processing, not the same as passing one folder as
+both `--source` and `--candidates`. See [Reading the result](#are-these-two-videos-the-same)
+for the CSV fields. A qualifying pair still needs visual review before you
+treat the files as duplicates.
 
 ### Two-pass visual analysis
 
