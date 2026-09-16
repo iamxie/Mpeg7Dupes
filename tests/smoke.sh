@@ -71,6 +71,8 @@ check() {
 }
 
 echo "Smoke testing $bin with $real_ffmpeg"
+"$real_ffmpeg" -version | sed -n '1p'
+"$real_ffprobe" -version | sed -n '1p'
 cd "$work"
 
 # a    40 seconds of one pattern, the source

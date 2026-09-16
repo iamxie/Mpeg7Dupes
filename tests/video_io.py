@@ -11,6 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 import detect_bars
 import sigmake
+from video_fixtures import rotate_90
 
 
 class VideoIO(unittest.TestCase):
@@ -59,7 +60,7 @@ class VideoIO(unittest.TestCase):
         plain, rotated = self.root / 'plain.mp4', self.root / 'rotated.mp4'
         self.ffmpeg('-f', 'lavfi', '-i', 'testsrc2=size=64x48:rate=10', '-t', '2',
                     '-c:v', 'libx264', '-preset', 'ultrafast', plain)
-        self.ffmpeg('-i', plain, '-c', 'copy', '-metadata:s:v:0', 'rotate=90', rotated)
+        rotate_90(plain, rotated)
         height, duration = detect_bars.probe(rotated)
         self.assertEqual(height, 64)
         raw = subprocess.run(['ffmpeg', '-v', 'error', '-i', str(rotated),

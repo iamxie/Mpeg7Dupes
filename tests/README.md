@@ -47,6 +47,14 @@ files. Input checks also cover real single-frame, two-frame and short signatures
 first video track and autorotated dimensions. They say nothing about accuracy
 beyond these small cases.
 
+Rotation fixtures in `video_io.py` and `crop_video.py` share
+`video_fixtures.py`. It uses the `-display_rotation` input option when available,
+or the older `rotate` output metadata on FFmpeg 5.1, and checks that a 90-degree
+display matrix was actually written. FFmpeg 6.1 can accept the old metadata
+command without rotating the result. These tests keep encoded pixels unchanged
+so they exercise real autorotation; they do not substitute a transpose filter
+or skip the geometry assertions. Smoke logs include ffmpeg/ffprobe versions.
+
 Not every function has a mirror test. A behaviour change or a fixed defect
 gets a test that would have failed before it; the rest is covered by the
 observable results above.

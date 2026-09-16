@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 import sigmake
 import sigstore
+from video_fixtures import rotate_90
 
 
 class CropVideo(unittest.TestCase):
@@ -37,7 +38,7 @@ class CropVideo(unittest.TestCase):
                             '-t', '2', '-c:v', 'libx264', '-threads', '1', video)
                 if rotate:
                     rotated = self.root / 'rotated.mp4'
-                    self.ffmpeg('-i', video, '-c', 'copy', '-metadata:s:v:0', 'rotate=90', rotated)
+                    rotate_90(video, rotated)
                     video, height = rotated, width
                 made = sigmake.make(video, self.con, self.root, fps=5, crop_bars=True,
                     crop_mode='fixed5', detector=sigmake.FIXED_CROP_ID, ffmpeg='ffmpeg',
