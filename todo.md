@@ -4,22 +4,20 @@ In priority order. Finished work belongs in README.md, benchmark.md and the
 commit history. Measurements live in benchmark.md; this file states what
 remains and what completion requires.
 
-## A third independent validation set
+## Conservative crop decisions on short and dark footage
 
-Use new original sources and series, excluding the tuning material, earlier
-validation sets and all detector development footage. Cover still/slides and
-locked-off shots with bars, plain dark/landscape footage with short quotes,
-native portrait and rotated video, blurred reframes, pillarboxing, shared
-openings across a series, and speed changes including off-grid ratios.
-Motion and the now available opt-in black mode must be declared before
-looking at results. Never treat a synthetic regression as this validation.
+The third independent validation is complete; its frozen methods, results and
+limits are in benchmark.md. It exposed visible sky removed by motion and dark
+dock picture removed by black. Successful matching does not establish a safe
+crop when both sides lose the same picture. Keep motion as the default and
+black explicit; do not choose a mode per pair after seeing its match score.
 
-Done when: freeze code, parameters, source selection and truth before one
-formal run; report both questions per scenario and original source, including
-failed/unprocessed inputs and crop decisions. For Q1 separate same-origin
-truth from longest-shared-span coverage truth. Keep alignment error separate
-from partial coverage. If results lead to tuning, retain the original run,
-reclassify that set as development material and use new sources next time.
+Done when: reproduce these failure mechanisms with focused pixel fixtures,
+define when to abstain, preserve the producer failure/cache identity contracts,
+and validate any changed detector on new original sources and series. If the
+third-set footage informs a fix or tuning, record its transition to development
+data and retain the original measurements. Do not absorb the separate short
+source threshold or speed-ranking decisions into this work.
 
 ## Speed-adjusted source coverage (low; separate behaviour change)
 

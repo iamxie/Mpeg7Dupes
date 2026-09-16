@@ -495,8 +495,11 @@ is uncertain and remains uncropped. Near-black compressed bars and a still
 textured copy are covered by generated tests, including a complete cold/hot
 scan. Dark picture edges can still be mistaken for bars, lettering stops the
 crop, and changes outside the samples can be missed. Review the crop; JSON,
-terminal and HTML carry this warning. This mode has **not** been validated
-on a new independent set or on the archived slide video's original pixels.
+terminal and HTML carry this warning. The [third independent set](benchmark.md#third-independent-validation-2026-09-16)
+now measures motion 3 and black-1 on newly acquired footage. Black recovered
+some plain barred still copies, but also removed dark picture from a dock shot;
+lettered copies still failed. Motion over-cropped an unbarred short landscape.
+Neither mode is universally correct. The archived slide original remains untested.
 
 **A band that never changes is cropped like a bar.** The motion detector looks for
 rows that do not move, so a news ticker or a caption strip across the whole
@@ -676,11 +679,12 @@ bars cropped it finds all 720 true duplicates with no false positives. Build
 build 7, which changed the comparison, still finds all 720 with no false
 positives, 670 of them frame for frame as before and the rest within a few
 frames, in about a third of the time. It is a
-regression set now, not a validation set. Two independent sets, of six and
-of ten sources that played no part in the tuning, were each run once since;
-benchmark.md reports them, and [Limits](#limits) has what they found. The
-synthetic checks behind the limits are there too, with the commands to
-reproduce them.
+regression set now, not a validation set. Later sets used six, ten and twelve
+new source videos. The third froze build 12, motion 3 and black-1 before new
+fingerprinting and comparison; it found further crop, short-source false-match
+and position limits. benchmark.md reports each set separately, and
+[Limits](#limits) explains how to interpret results. The synthetic checks behind
+the limits are there too, with the commands to reproduce them.
 
 ## Fork notice and license
 

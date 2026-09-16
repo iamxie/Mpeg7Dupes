@@ -5,6 +5,8 @@ uses detector version 3, with the same motion thresholds and corrected video
 stream selection, display height after rotation, and sampling-error handling.
 Its input contracts are covered by synthetic smoke tests; these historical
 measurements have not been relabelled as a new independent validation.
+The [third set](#third-independent-validation-2026-09-16) independently measures
+build 12 with motion 3 and black-1 on newly acquired videos.
 
 What settings to use, the measurements behind them, and what those
 measurements do and do not tell you.
@@ -995,6 +997,121 @@ declined, and the night sky's clip above.
   A crop for still footage would make it tuning material for the detector,
   and that change would need a third set.
 
+## Third independent validation (2026-09-16)
+
+This is a new acquisition and pixel-to-signature run, frozen at commit
+`793a4c3` (b12, JSON 6), rather than another pass over retained signatures.
+The source selection, constructions, truth, code and tool digests were frozen
+before invoking the detector or comparator. Neither thresholds, crop logic,
+coverage nor speed ranking changed in response to this set. Motion detector 3
+and opt-in black-1 each ran the whole inventory, never picking the better mode
+per pair. Linux aarch64 used ffmpeg 5.1, 5 signature fps and four comparison jobs.
+Q1 used the documented `-b 0.5` flags; Q2 used `-b 0.1`; both applied 40%.
+
+The 12 source videos include three episodes of the same ScienceCasts series;
+they are not 12 independent series. Acquired full short originals include a
+15-second star field and a 29-second static mountain shot. Other long uploads
+use fixed windows selected before testing. The media were normalized to 15 fps,
+usually 640×360, with portrait and 4:3 proportions retained. Transformations
+include re-encoding, middle cuts, near-black and lettered bars, 0.8×/1.25×/1.17×
+full and partial reuse, blurred reframes, metadata rotation and pillarboxing.
+Night, ocean and landscape queries use fixed central 10/20/30/60/90/120-second
+cuts. Each series episode has full, 10/20-second opening, 30-second middle and
+shared-ad versions. The inserted ad is synthetic, not another original source.
+
+| Source | Author | Acquired interval |
+| --- | --- | --- |
+| [light](https://www.youtube.com/watch?v=HBtdbaSKexU) | NASA Science | Full upload representation |
+| [formation](https://www.youtube.com/watch?v=G-NGBRKYPlI) | NASA Science | Full upload representation |
+| [moon](https://www.youtube.com/watch?v=sWAN0FwfD5M) | NASA Science | Full upload representation |
+| [zion](https://www.youtube.com/watch?v=tayaTlMKmjQ) | Christopher Michael Dortch | Full upload representation |
+| [stars](https://www.youtube.com/watch?v=sE-W9f9SaDs) | Freestocks | Full upload representation |
+| [slides](https://www.youtube.com/watch?v=PKCMH5KOcxQ) | MIT OpenCourseWare | 1200–1380 s |
+| [dock](https://www.youtube.com/watch?v=OIGBHbvr_9Q) | 10minutes2relax | 120–300 s |
+| [night](https://www.youtube.com/watch?v=XQ28OXLwFl4) | Night Lights Films - Adrien Mauduit | 180–360 s |
+| [ocean](https://www.youtube.com/watch?v=dZ4tvcviweg) | H O R I Z O N   H U N T | 60–240 s |
+| [alps](https://www.youtube.com/watch?v=7bOptq-NPJQ) | Nature Relaxation Films | 60–240 s |
+| [portrait](https://www.youtube.com/watch?v=TdxHQJH4TKI) | Brionne Olsen | Full upload representation |
+| [apollo](https://www.youtube.com/watch?v=S9HdPi9Ikhk) | NASA | 2010–2190 s |
+
+All 107 input entries were processed: 75 candidates and 32 queries. Each mode
+built 106 fresh content signatures and reused one byte-identical rotated file
+within this batch. All 2,775 Q1 and 2,400 Q2 requested pairs completed per mode;
+there were no failed or unprocessed inputs. Complete ledgers, source/recipe
+metadata, detector samples and tool output remain in the experiment workspace.
+The [machine-readable summary](benchmarks/third-2026-09-16-summary.json) includes
+source identities, digests and per-source, scenario and quote-length counts.
+Downloaded videos are not included in this repository or required by its tests.
+
+Q1 has two truths: same original source, and longest continuous shared span
+covering at least 40% of the shorter file. Shared ads/openings can satisfy the
+second without satisfying the first. Q2 truth uses the source-side shared span;
+the product still uses its existing matchframes denominator. Truth counts
+sampling instants in half-open intervals against actual signature frame counts.
+
+| Question / truth | Crop mode | TP | FP | FN | TN |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Q1 same origin | motion | 195 | 97 | 40 | 2443 |
+| Q1 same origin | black | 196 | 85 | 39 | 2455 |
+| Q1 shared coverage | motion | 226 | 66 | 18 | 2465 |
+| Q1 shared coverage | black | 225 | 56 | 19 | 2475 |
+| Q2 source coverage | motion | 199 | 4 | 18 | 2179 |
+| Q2 source coverage | black | 210 | 4 | 7 | 2179 |
+
+Black reduced Q2 misses on this set, but did not improve Q1 coverage misses.
+It is not a generally better default. Of 76 entries with a unique geometric
+crop truth, motion was correct on 60, over-cropped 2 and abstained on 14; black
+was correct on 71 and over-cropped 5. The other 31 have mixed content or lettered
+bands without a unique crop answer and are excluded from that correctness tally.
+
+Specific findings:
+
+- Motion removed 73 of 360 picture rows from the unbarred `alps__quote10`,
+  missing all ten same-source candidates. Black kept the sky and recovered
+  nine; the remaining miss was a blurred reframe.
+- Black removed 16 dark picture rows from the unbarred dock source, its
+  same-size variants and an added bar, and 8 from the half-size copy. A match
+  can survive because both sides lose the same picture; matching success
+  does not establish crop correctness.
+- Black recovered plain barred copies of the static Zion and dock sources;
+  both modes still missed their lettered copies. Both found all five variants
+  of the MIT excerpt, which includes changing slides and lecturer shots: this
+  is not evidence for an entirely still slide deck.
+- Both modes produced the same four unrelated Q2 matches: night queries of
+  30/60 seconds against ScienceCasts footage, and a ten-second ocean query
+  against a slowed landscape. There were none at 90/120 seconds in this set;
+  that does not make either duration a safe boundary.
+- Q1 coverage false positives comprise 49 unrelated pairs, 16 shared-opening
+  pairs below 40%, and one same-source pair below 40% for motion; black has
+  42 unrelated and 14 below-threshold opening pairs. Short opening cards and
+  dark/simple footage account for much of the failure, beyond the legitimate
+  shared-opening and ad matches counted by coverage truth.
+- All eight same-source native portrait / metadata-rotation Q2 positives were
+  found and correctly aligned in both modes. All four 4:3 source positives,
+  including its pillarbox copy, were found. There is still no side-bar detector;
+  these individual successes do not establish general reframe support.
+
+A true-positive pair can report the wrong place. Among coverage TPs, Q1 had
+30/31 pairs more than five frames off the true alignment line (motion/black),
+with maxima of 142.8/265.6 seconds. These include a pair with a real shared
+opening where the reported match lands elsewhere. Q2 had 32/35 such pairs,
+with maxima of 46.6/4.02 seconds; another three per mode were aligned but covered
+less than 90% of the expected common span. Five frames and 90% are reporting
+categories, not promised accuracy. At off-grid speeds, finding the pair still
+does not imply exact endpoints. The summary retains alignment and partial
+capture separately.
+
+The ScienceCasts opening equivalence is manually annotated as 0–5 seconds,
+with about ±0.2-second boundary uncertainty; 10/20-second opening cuts avoid
+the 40% ambiguity region. Incidental shared B-roll was not exhaustively labelled.
+Apollo's 4:3 picture was unpacked from known side padding in a 16:9 upload before
+constructing a pillarbox copy. Crop truth combines visual inspection with known
+geometry; naturally dark picture remains picture. Historical `AD.mp4` provenance
+is still unknown, so exhaustive source exclusion cannot be proved. Sources,
+variants and pairs are correlated; these counts are not a population accuracy
+estimate. If this set is later used to tune or fix a detector, retain this run,
+reclassify the used sources as development data, and validate on new sources.
+
 ## Reproducing
 
 The optional `--crop-mode black` added after P2 uses a separate `black-1`
@@ -1047,10 +1164,10 @@ the digests of its inputs, which `-s` writes into the ledger for you.
 
 - **One corpus, six sources, and the settings were tuned on it.** The
   treatments are synthetic and applied uniformly. Real re-uploads vary more.
-  Two independent sets, of six and of ten other sources, have been measured
-  since, each once: evidence that the first question's settings carry over,
-  and that the second question's do not for sources under about two minutes
-  on some material. Not a rate.
+  Later sets measured six, ten and twelve new source videos. The third set
+  includes shorter originals, both crop modes and further false matches and
+  crop/position errors. Their correlated pairs do not establish a general
+  accuracy rate or a safe minimum source duration.
 - **One sampling rate.** Everything is at 5 fps. Whether 2 or 3 fps would
   hold up is untested.
 - **The original `-d`/`-c` sweep predates the build 7 fix.** Through build 6,

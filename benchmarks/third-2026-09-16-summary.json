@@ -1,0 +1,2080 @@
+{
+  "schema": "mpeg7dupes-third-validation-summary/1",
+  "candidate_commit": "793a4c32b06e481ec7b71cddf1fb18619b40f50f",
+  "binary_sha256": "d2ae84649ad4441447f379a5e070571c69b6425eec7c5a3d13815877aba670ff",
+  "freeze_sha256": "9afa666e3f4ebb0ca7fab1a42cd5da54ba377b24d087601bfb67f7b93aa2844d",
+  "ffmpeg": "ffmpeg version 5.1.9-0+deb12u1 Copyright (c) 2000-2026 the FFmpeg developers",
+  "settings": {
+    "fps": 5,
+    "jobs": 4,
+    "timeout": 3600,
+    "q1": "-m longest -x 290 -i 0 -k 1 -b 0.5 -d 9000 -c 60000",
+    "q2": "-m longest -x 290 -i 0 -k 1 -b 0.1 -d 9000 -c 60000",
+    "coverage": 0.4
+  },
+  "sources": [
+    {
+      "id": "light",
+      "video_id": "HBtdbaSKexU",
+      "url": "https://www.youtube.com/watch?v=HBtdbaSKexU",
+      "title": "ScienceCasts: The Power of Light",
+      "author": "NASA Science",
+      "series": "ScienceCasts 2016",
+      "category": "series",
+      "download_window": null,
+      "acquired_sha256": "2e235f719397329a104c1980e1cdefb651e5e627ddbf2837c3c810c8efc2f6cb",
+      "sha_scope": "acquired full upload representation",
+      "normalised_seconds": 255.0
+    },
+    {
+      "id": "formation",
+      "video_id": "G-NGBRKYPlI",
+      "url": "https://www.youtube.com/watch?v=G-NGBRKYPlI",
+      "title": "ScienceCasts: NASA Spacecraft Fly in Record-setting Formation",
+      "author": "NASA Science",
+      "series": "ScienceCasts 2016",
+      "category": "series",
+      "download_window": null,
+      "acquired_sha256": "d620d98e70790581a0cd21e3756740023445b04747c8795b4da70a1a7a513fc6",
+      "sha_scope": "acquired full upload representation",
+      "normalised_seconds": 295.4
+    },
+    {
+      "id": "moon",
+      "video_id": "sWAN0FwfD5M",
+      "url": "https://www.youtube.com/watch?v=sWAN0FwfD5M",
+      "title": "ScienceCasts: 2016 Ends with Three Supermoons",
+      "author": "NASA Science",
+      "series": "ScienceCasts 2016",
+      "category": "series",
+      "download_window": null,
+      "acquired_sha256": "45d40af060b99f5680afdcca73e71c65b6ec0426154731888198c6b0c7ccb33e",
+      "sha_scope": "acquired full upload representation",
+      "normalised_seconds": 215.6
+    },
+    {
+      "id": "zion",
+      "video_id": "tayaTlMKmjQ",
+      "url": "https://www.youtube.com/watch?v=tayaTlMKmjQ",
+      "title": "Static shot of mountains and waterfall at Zion National Park",
+      "author": "Christopher Michael Dortch",
+      "series": "Christopher Michael Dortch Zion static shots",
+      "category": "static",
+      "download_window": null,
+      "acquired_sha256": "a67cfa9675c07a59028696711b9c833f1b6427e17bab200caefb00d57b3a3fb0",
+      "sha_scope": "acquired full upload representation",
+      "normalised_seconds": 29.2
+    },
+    {
+      "id": "stars",
+      "video_id": "sE-W9f9SaDs",
+      "url": "https://www.youtube.com/watch?v=sE-W9f9SaDs",
+      "title": "Starry Sky Timelapse - Free Stock Creative Commons Video",
+      "author": "Freestocks",
+      "series": "Freestocks starry sky",
+      "category": "short-night",
+      "download_window": null,
+      "acquired_sha256": "9240127c09f83520047be07b66138bc089a449d6f65830377d59e89fc3caca38",
+      "sha_scope": "acquired full upload representation",
+      "normalised_seconds": 15.0
+    },
+    {
+      "id": "slides",
+      "video_id": "PKCMH5KOcxQ",
+      "url": "https://www.youtube.com/watch?v=PKCMH5KOcxQ",
+      "title": "12. Machine Learning for Pathology",
+      "author": "MIT OpenCourseWare",
+      "series": "MIT HST.953 2018",
+      "category": "slides",
+      "download_window": [
+        1200,
+        1380
+      ],
+      "acquired_sha256": "55eb267a6c80a18c6504020f77ae26723155e0189c999204c2905da0c8f203b8",
+      "sha_scope": "acquired window bytes",
+      "normalised_seconds": 180.0
+    },
+    {
+      "id": "dock",
+      "video_id": "OIGBHbvr_9Q",
+      "url": "https://www.youtube.com/watch?v=OIGBHbvr_9Q",
+      "title": "10minutes2relax - Off the Dock Creative Commons Attribution License",
+      "author": "10minutes2relax",
+      "series": "10minutes2relax",
+      "category": "locked-off",
+      "download_window": [
+        120,
+        300
+      ],
+      "acquired_sha256": "231aa15c19b70f47e692891b990908b329d3ac70fc60c83857305fa969b2de6b",
+      "sha_scope": "acquired window bytes",
+      "normalised_seconds": 180.0
+    },
+    {
+      "id": "night",
+      "video_id": "XQ28OXLwFl4",
+      "url": "https://www.youtube.com/watch?v=XQ28OXLwFl4",
+      "title": "Milky Way timelapse compilation & relaxation - 4K",
+      "author": "Night Lights Films - Adrien Mauduit",
+      "series": "Night Lights Films original timelapses",
+      "category": "night",
+      "download_window": [
+        180,
+        360
+      ],
+      "acquired_sha256": "9c27b434f7e5609edd741f380ca5d6c0314aaee05ee63d8a0b69dca934160a09",
+      "sha_scope": "acquired window bytes",
+      "normalised_seconds": 180.0
+    },
+    {
+      "id": "ocean",
+      "video_id": "dZ4tvcviweg",
+      "url": "https://www.youtube.com/watch?v=dZ4tvcviweg",
+      "title": "Wave sounds for deep sleep. 5 minutes. 4K HD",
+      "author": "H O R I Z O N   H U N T",
+      "series": "HORIZON HUNT original ocean recordings",
+      "category": "plain",
+      "download_window": [
+        60,
+        240
+      ],
+      "acquired_sha256": "e09a00f38fa7748acb77b70730d382bf1328f4d1126ebf2fad48a2c679faf592",
+      "sha_scope": "acquired window bytes",
+      "normalised_seconds": 180.0
+    },
+    {
+      "id": "alps",
+      "video_id": "7bOptq-NPJQ",
+      "url": "https://www.youtube.com/watch?v=7bOptq-NPJQ",
+      "title": "ALPS & DOLOMITES (Drone + Timelapse) Heavenly Nature Relaxation™ 5 Minute Short Film in 4K UHD",
+      "author": "Nature Relaxation Films",
+      "series": "Nature Relaxation Alps & Dolomites",
+      "category": "landscape",
+      "download_window": [
+        60,
+        240
+      ],
+      "acquired_sha256": "dc2a3e79de7c7089c96e2ed001c27a71fcd1b648bdfa0f77b97d695526fa29c2",
+      "sha_scope": "acquired window bytes",
+      "normalised_seconds": 180.0
+    },
+    {
+      "id": "portrait",
+      "video_id": "TdxHQJH4TKI",
+      "url": "https://www.youtube.com/watch?v=TdxHQJH4TKI",
+      "title": "Paris Vertical Travel Video Shot On iPhone #shorts",
+      "author": "Brionne Olsen ",
+      "series": "Brionne Olsen Paris iPhone travel",
+      "category": "native-portrait",
+      "download_window": null,
+      "acquired_sha256": "6c110a34c868f9b8fb7c501a5efef415074c7df2e3bf474d246620aaaf6b92a4",
+      "sha_scope": "acquired full upload representation",
+      "normalised_seconds": 281.8
+    },
+    {
+      "id": "apollo",
+      "video_id": "S9HdPi9Ikhk",
+      "url": "https://www.youtube.com/watch?v=S9HdPi9Ikhk",
+      "title": "Restored Apollo 11 Moonwalk - Original NASA EVA Mission Video - Walking on the Moon",
+      "author": "NASA",
+      "series": "NASA Apollo 11 restored EVA",
+      "category": "four-three",
+      "download_window": [
+        2010,
+        2190
+      ],
+      "acquired_sha256": "1b05d657dba92ff312d72ea49f14555edbb02e25b644e5c1e7cb9445bb79a3bc",
+      "sha_scope": "acquired window bytes",
+      "normalised_seconds": 180.0
+    }
+  ],
+  "results": {
+    "status": "complete",
+    "schema": "third-evaluation/1",
+    "modes": {
+      "motion": {
+        "crops": {
+          "correct": 60,
+          "over_crop": 2,
+          "uncertain": 14,
+          "no_unique_answer": 31
+        },
+        "crop_states": {
+          "none": 80,
+          "detected": 11,
+          "uncertain": 16
+        },
+        "fingerprint_seconds": 274.61571412795456,
+        "questions": {
+          "q1": {
+            "coverage": {
+              "n": 2775,
+              "TP": 226,
+              "FP": 66,
+              "FN": 18,
+              "TN": 2465,
+              "unprocessed": 0
+            },
+            "semantic": {
+              "n": 2775,
+              "TP": 195,
+              "FP": 97,
+              "FN": 40,
+              "TN": 2443,
+              "unprocessed": 0
+            },
+            "per_source": {
+              "alps": {
+                "n": 695,
+                "TP": 42,
+                "FP": 1,
+                "FN": 3,
+                "TN": 649,
+                "unprocessed": 0
+              },
+              "apollo": {
+                "n": 290,
+                "TP": 6,
+                "FP": 27,
+                "FN": 0,
+                "TN": 257,
+                "unprocessed": 0
+              },
+              "dock": {
+                "n": 360,
+                "TP": 6,
+                "FP": 0,
+                "FN": 4,
+                "TN": 350,
+                "unprocessed": 0
+              },
+              "formation": {
+                "n": 564,
+                "TP": 40,
+                "FP": 29,
+                "FN": 3,
+                "TN": 492,
+                "unprocessed": 0
+              },
+              "light": {
+                "n": 564,
+                "TP": 41,
+                "FP": 22,
+                "FN": 2,
+                "TN": 499,
+                "unprocessed": 0
+              },
+              "moon": {
+                "n": 564,
+                "TP": 39,
+                "FP": 35,
+                "FN": 4,
+                "TN": 486,
+                "unprocessed": 0
+              },
+              "night": {
+                "n": 759,
+                "TP": 55,
+                "FP": 17,
+                "FN": 0,
+                "TN": 687,
+                "unprocessed": 0
+              },
+              "ocean": {
+                "n": 290,
+                "TP": 6,
+                "FP": 0,
+                "FN": 0,
+                "TN": 284,
+                "unprocessed": 0
+              },
+              "portrait": {
+                "n": 290,
+                "TP": 6,
+                "FP": 0,
+                "FN": 0,
+                "TN": 284,
+                "unprocessed": 0
+              },
+              "slides": {
+                "n": 360,
+                "TP": 10,
+                "FP": 0,
+                "FN": 0,
+                "TN": 350,
+                "unprocessed": 0
+              },
+              "stars": {
+                "n": 219,
+                "TP": 3,
+                "FP": 0,
+                "FN": 0,
+                "TN": 216,
+                "unprocessed": 0
+              },
+              "zion": {
+                "n": 360,
+                "TP": 4,
+                "FP": 0,
+                "FN": 6,
+                "TN": 350,
+                "unprocessed": 0
+              }
+            },
+            "per_scenario": {
+              "blurred-reframe": {
+                "n": 147,
+                "TP": 9,
+                "FP": 0,
+                "FN": 3,
+                "TN": 135,
+                "unprocessed": 0
+              },
+              "four-three": {
+                "n": 290,
+                "TP": 6,
+                "FP": 27,
+                "FN": 0,
+                "TN": 257,
+                "unprocessed": 0
+              },
+              "landscape": {
+                "n": 695,
+                "TP": 42,
+                "FP": 1,
+                "FN": 3,
+                "TN": 649,
+                "unprocessed": 0
+              },
+              "lettered-bars": {
+                "n": 290,
+                "TP": 17,
+                "FP": 2,
+                "FN": 5,
+                "TN": 266,
+                "unprocessed": 0
+              },
+              "locked-off": {
+                "n": 360,
+                "TP": 6,
+                "FP": 0,
+                "FN": 4,
+                "TN": 350,
+                "unprocessed": 0
+              },
+              "native-portrait": {
+                "n": 290,
+                "TP": 6,
+                "FP": 0,
+                "FN": 0,
+                "TN": 284,
+                "unprocessed": 0
+              },
+              "near-black-bars": {
+                "n": 290,
+                "TP": 17,
+                "FP": 3,
+                "FN": 5,
+                "TN": 265,
+                "unprocessed": 0
+              },
+              "night": {
+                "n": 759,
+                "TP": 55,
+                "FP": 17,
+                "FN": 0,
+                "TN": 687,
+                "unprocessed": 0
+              },
+              "pillarbox": {
+                "n": 74,
+                "TP": 3,
+                "FP": 7,
+                "FN": 0,
+                "TN": 64,
+                "unprocessed": 0
+              },
+              "plain": {
+                "n": 290,
+                "TP": 6,
+                "FP": 0,
+                "FN": 0,
+                "TN": 284,
+                "unprocessed": 0
+              },
+              "rotation-metadata": {
+                "n": 74,
+                "TP": 3,
+                "FP": 0,
+                "FN": 0,
+                "TN": 71,
+                "unprocessed": 0
+              },
+              "series": {
+                "n": 1500,
+                "TP": 88,
+                "FP": 66,
+                "FN": 5,
+                "TN": 1341,
+                "unprocessed": 0
+              },
+              "series-short": {
+                "n": 219,
+                "TP": 15,
+                "FP": 7,
+                "FN": 0,
+                "TN": 197,
+                "unprocessed": 0
+              },
+              "shared-ad": {
+                "n": 429,
+                "TP": 39,
+                "FP": 4,
+                "FN": 0,
+                "TN": 386,
+                "unprocessed": 0
+              },
+              "shared-opening": {
+                "n": 429,
+                "TP": 43,
+                "FP": 60,
+                "FN": 5,
+                "TN": 321,
+                "unprocessed": 0
+              },
+              "short-night": {
+                "n": 219,
+                "TP": 3,
+                "FP": 0,
+                "FN": 0,
+                "TN": 216,
+                "unprocessed": 0
+              },
+              "slides": {
+                "n": 360,
+                "TP": 10,
+                "FP": 0,
+                "FN": 0,
+                "TN": 350,
+                "unprocessed": 0
+              },
+              "speed-full": {
+                "n": 429,
+                "TP": 51,
+                "FP": 7,
+                "FN": 0,
+                "TN": 371,
+                "unprocessed": 0
+              },
+              "speed-partial": {
+                "n": 429,
+                "TP": 48,
+                "FP": 1,
+                "FN": 3,
+                "TN": 377,
+                "unprocessed": 0
+              },
+              "static": {
+                "n": 360,
+                "TP": 4,
+                "FP": 0,
+                "FN": 6,
+                "TN": 350,
+                "unprocessed": 0
+              }
+            },
+            "per_source_semantic": {
+              "alps": {
+                "n": 695,
+                "TP": 42,
+                "FP": 1,
+                "FN": 3,
+                "TN": 649,
+                "unprocessed": 0
+              },
+              "apollo": {
+                "n": 290,
+                "TP": 6,
+                "FP": 27,
+                "FN": 0,
+                "TN": 257,
+                "unprocessed": 0
+              },
+              "dock": {
+                "n": 360,
+                "TP": 6,
+                "FP": 0,
+                "FN": 4,
+                "TN": 350,
+                "unprocessed": 0
+              },
+              "formation": {
+                "n": 564,
+                "TP": 19,
+                "FP": 50,
+                "FN": 9,
+                "TN": 486,
+                "unprocessed": 0
+              },
+              "light": {
+                "n": 564,
+                "TP": 18,
+                "FP": 45,
+                "FN": 10,
+                "TN": 491,
+                "unprocessed": 0
+              },
+              "moon": {
+                "n": 564,
+                "TP": 20,
+                "FP": 54,
+                "FN": 8,
+                "TN": 482,
+                "unprocessed": 0
+              },
+              "night": {
+                "n": 759,
+                "TP": 55,
+                "FP": 17,
+                "FN": 0,
+                "TN": 687,
+                "unprocessed": 0
+              },
+              "ocean": {
+                "n": 290,
+                "TP": 6,
+                "FP": 0,
+                "FN": 0,
+                "TN": 284,
+                "unprocessed": 0
+              },
+              "portrait": {
+                "n": 290,
+                "TP": 6,
+                "FP": 0,
+                "FN": 0,
+                "TN": 284,
+                "unprocessed": 0
+              },
+              "slides": {
+                "n": 360,
+                "TP": 10,
+                "FP": 0,
+                "FN": 0,
+                "TN": 350,
+                "unprocessed": 0
+              },
+              "stars": {
+                "n": 219,
+                "TP": 3,
+                "FP": 0,
+                "FN": 0,
+                "TN": 216,
+                "unprocessed": 0
+              },
+              "zion": {
+                "n": 360,
+                "TP": 4,
+                "FP": 0,
+                "FN": 6,
+                "TN": 350,
+                "unprocessed": 0
+              }
+            },
+            "per_scenario_semantic": {
+              "blurred-reframe": {
+                "n": 147,
+                "TP": 9,
+                "FP": 0,
+                "FN": 3,
+                "TN": 135,
+                "unprocessed": 0
+              },
+              "four-three": {
+                "n": 290,
+                "TP": 6,
+                "FP": 27,
+                "FN": 0,
+                "TN": 257,
+                "unprocessed": 0
+              },
+              "landscape": {
+                "n": 695,
+                "TP": 42,
+                "FP": 1,
+                "FN": 3,
+                "TN": 649,
+                "unprocessed": 0
+              },
+              "lettered-bars": {
+                "n": 290,
+                "TP": 17,
+                "FP": 2,
+                "FN": 5,
+                "TN": 266,
+                "unprocessed": 0
+              },
+              "locked-off": {
+                "n": 360,
+                "TP": 6,
+                "FP": 0,
+                "FN": 4,
+                "TN": 350,
+                "unprocessed": 0
+              },
+              "native-portrait": {
+                "n": 290,
+                "TP": 6,
+                "FP": 0,
+                "FN": 0,
+                "TN": 284,
+                "unprocessed": 0
+              },
+              "near-black-bars": {
+                "n": 290,
+                "TP": 17,
+                "FP": 3,
+                "FN": 5,
+                "TN": 265,
+                "unprocessed": 0
+              },
+              "night": {
+                "n": 759,
+                "TP": 55,
+                "FP": 17,
+                "FN": 0,
+                "TN": 687,
+                "unprocessed": 0
+              },
+              "pillarbox": {
+                "n": 74,
+                "TP": 3,
+                "FP": 7,
+                "FN": 0,
+                "TN": 64,
+                "unprocessed": 0
+              },
+              "plain": {
+                "n": 290,
+                "TP": 6,
+                "FP": 0,
+                "FN": 0,
+                "TN": 284,
+                "unprocessed": 0
+              },
+              "rotation-metadata": {
+                "n": 74,
+                "TP": 3,
+                "FP": 0,
+                "FN": 0,
+                "TN": 71,
+                "unprocessed": 0
+              },
+              "series": {
+                "n": 1500,
+                "TP": 57,
+                "FP": 97,
+                "FN": 27,
+                "TN": 1319,
+                "unprocessed": 0
+              },
+              "series-short": {
+                "n": 219,
+                "TP": 15,
+                "FP": 7,
+                "FN": 6,
+                "TN": 191,
+                "unprocessed": 0
+              },
+              "shared-ad": {
+                "n": 429,
+                "TP": 24,
+                "FP": 19,
+                "FN": 15,
+                "TN": 371,
+                "unprocessed": 0
+              },
+              "shared-opening": {
+                "n": 429,
+                "TP": 21,
+                "FP": 82,
+                "FN": 18,
+                "TN": 308,
+                "unprocessed": 0
+              },
+              "short-night": {
+                "n": 219,
+                "TP": 3,
+                "FP": 0,
+                "FN": 0,
+                "TN": 216,
+                "unprocessed": 0
+              },
+              "slides": {
+                "n": 360,
+                "TP": 10,
+                "FP": 0,
+                "FN": 0,
+                "TN": 350,
+                "unprocessed": 0
+              },
+              "speed-full": {
+                "n": 429,
+                "TP": 51,
+                "FP": 7,
+                "FN": 0,
+                "TN": 371,
+                "unprocessed": 0
+              },
+              "speed-partial": {
+                "n": 429,
+                "TP": 48,
+                "FP": 1,
+                "FN": 3,
+                "TN": 377,
+                "unprocessed": 0
+              },
+              "static": {
+                "n": 360,
+                "TP": 4,
+                "FP": 0,
+                "FN": 6,
+                "TN": 350,
+                "unprocessed": 0
+              }
+            },
+            "per_quote_length": {},
+            "positioning": {
+              "count": 226,
+              "classes": {
+                "aligned_full": 189,
+                "misaligned": 30,
+                "aligned_partial": 7
+              },
+              "overruns": 0,
+              "off_line_median": 7.105427357601002e-14,
+              "off_line_max": 714.0
+            },
+            "truth_changed_by_frame_domain": 0
+          },
+          "q2": {
+            "coverage": {
+              "n": 2400,
+              "TP": 199,
+              "FP": 4,
+              "FN": 18,
+              "TN": 2179,
+              "unprocessed": 0
+            },
+            "semantic": {
+              "n": 2400,
+              "TP": 193,
+              "FP": 10,
+              "FN": 36,
+              "TN": 2161,
+              "unprocessed": 0
+            },
+            "per_source": {
+              "alps": {
+                "n": 525,
+                "TP": 53,
+                "FP": 0,
+                "FN": 14,
+                "TN": 458,
+                "unprocessed": 0
+              },
+              "apollo": {
+                "n": 75,
+                "TP": 4,
+                "FP": 0,
+                "FN": 0,
+                "TN": 71,
+                "unprocessed": 0
+              },
+              "dock": {
+                "n": 75,
+                "TP": 3,
+                "FP": 0,
+                "FN": 2,
+                "TN": 70,
+                "unprocessed": 0
+              },
+              "formation": {
+                "n": 75,
+                "TP": 4,
+                "FP": 0,
+                "FN": 0,
+                "TN": 71,
+                "unprocessed": 0
+              },
+              "light": {
+                "n": 75,
+                "TP": 4,
+                "FP": 0,
+                "FN": 0,
+                "TN": 71,
+                "unprocessed": 0
+              },
+              "moon": {
+                "n": 75,
+                "TP": 4,
+                "FP": 0,
+                "FN": 0,
+                "TN": 71,
+                "unprocessed": 0
+              },
+              "night": {
+                "n": 525,
+                "TP": 74,
+                "FP": 3,
+                "FN": 0,
+                "TN": 448,
+                "unprocessed": 0
+              },
+              "ocean": {
+                "n": 525,
+                "TP": 28,
+                "FP": 1,
+                "FN": 0,
+                "TN": 496,
+                "unprocessed": 0
+              },
+              "portrait": {
+                "n": 150,
+                "TP": 8,
+                "FP": 0,
+                "FN": 0,
+                "TN": 142,
+                "unprocessed": 0
+              },
+              "slides": {
+                "n": 75,
+                "TP": 5,
+                "FP": 0,
+                "FN": 0,
+                "TN": 70,
+                "unprocessed": 0
+              },
+              "stars": {
+                "n": 75,
+                "TP": 3,
+                "FP": 0,
+                "FN": 0,
+                "TN": 72,
+                "unprocessed": 0
+              },
+              "zion": {
+                "n": 75,
+                "TP": 3,
+                "FP": 0,
+                "FN": 2,
+                "TN": 70,
+                "unprocessed": 0
+              },
+              "controlled-ad": {
+                "n": 75,
+                "TP": 6,
+                "FP": 0,
+                "FN": 0,
+                "TN": 69,
+                "unprocessed": 0
+              }
+            },
+            "per_scenario": {
+              "blurred-reframe": {
+                "n": 64,
+                "TP": 9,
+                "FP": 0,
+                "FN": 5,
+                "TN": 50,
+                "unprocessed": 0
+              },
+              "controlled-ad": {
+                "n": 75,
+                "TP": 6,
+                "FP": 0,
+                "FN": 0,
+                "TN": 69,
+                "unprocessed": 0
+              },
+              "four-three": {
+                "n": 199,
+                "TP": 4,
+                "FP": 0,
+                "FN": 0,
+                "TN": 195,
+                "unprocessed": 0
+              },
+              "landscape": {
+                "n": 775,
+                "TP": 53,
+                "FP": 1,
+                "FN": 14,
+                "TN": 707,
+                "unprocessed": 0
+              },
+              "lettered-bars": {
+                "n": 128,
+                "TP": 8,
+                "FP": 0,
+                "FN": 2,
+                "TN": 118,
+                "unprocessed": 0
+              },
+              "locked-off": {
+                "n": 230,
+                "TP": 3,
+                "FP": 0,
+                "FN": 2,
+                "TN": 225,
+                "unprocessed": 0
+              },
+              "native-portrait": {
+                "n": 270,
+                "TP": 8,
+                "FP": 0,
+                "FN": 0,
+                "TN": 262,
+                "unprocessed": 0
+              },
+              "near-black-bars": {
+                "n": 128,
+                "TP": 8,
+                "FP": 0,
+                "FN": 2,
+                "TN": 118,
+                "unprocessed": 0
+              },
+              "night": {
+                "n": 800,
+                "TP": 74,
+                "FP": 3,
+                "FN": 0,
+                "TN": 723,
+                "unprocessed": 0
+              },
+              "pillarbox": {
+                "n": 32,
+                "TP": 1,
+                "FP": 0,
+                "FN": 0,
+                "TN": 31,
+                "unprocessed": 0
+              },
+              "plain": {
+                "n": 625,
+                "TP": 28,
+                "FP": 1,
+                "FN": 0,
+                "TN": 596,
+                "unprocessed": 0
+              },
+              "quote-length": {
+                "n": 1350,
+                "TP": 136,
+                "FP": 4,
+                "FN": 14,
+                "TN": 1196,
+                "unprocessed": 0
+              },
+              "rotation-metadata": {
+                "n": 106,
+                "TP": 5,
+                "FP": 0,
+                "FN": 0,
+                "TN": 101,
+                "unprocessed": 0
+              },
+              "series": {
+                "n": 921,
+                "TP": 18,
+                "FP": 3,
+                "FN": 0,
+                "TN": 900,
+                "unprocessed": 0
+              },
+              "series-short": {
+                "n": 96,
+                "TP": 0,
+                "FP": 0,
+                "FN": 0,
+                "TN": 96,
+                "unprocessed": 0
+              },
+              "shared-ad": {
+                "n": 192,
+                "TP": 9,
+                "FP": 2,
+                "FN": 0,
+                "TN": 181,
+                "unprocessed": 0
+              },
+              "shared-opening": {
+                "n": 192,
+                "TP": 0,
+                "FP": 0,
+                "FN": 0,
+                "TN": 192,
+                "unprocessed": 0
+              },
+              "short-night": {
+                "n": 168,
+                "TP": 3,
+                "FP": 0,
+                "FN": 0,
+                "TN": 165,
+                "unprocessed": 0
+              },
+              "slides": {
+                "n": 230,
+                "TP": 5,
+                "FP": 0,
+                "FN": 0,
+                "TN": 225,
+                "unprocessed": 0
+              },
+              "speed-full": {
+                "n": 192,
+                "TP": 39,
+                "FP": 1,
+                "FN": 3,
+                "TN": 149,
+                "unprocessed": 0
+              },
+              "speed-partial": {
+                "n": 192,
+                "TP": 33,
+                "FP": 0,
+                "FN": 3,
+                "TN": 156,
+                "unprocessed": 0
+              },
+              "static": {
+                "n": 230,
+                "TP": 3,
+                "FP": 0,
+                "FN": 2,
+                "TN": 225,
+                "unprocessed": 0
+              }
+            },
+            "per_source_semantic": {},
+            "per_scenario_semantic": {},
+            "per_quote_length": {
+              "10": {
+                "n": 225,
+                "TP": 15,
+                "FP": 1,
+                "FN": 10,
+                "TN": 199,
+                "unprocessed": 0
+              },
+              "20": {
+                "n": 225,
+                "TP": 24,
+                "FP": 0,
+                "FN": 1,
+                "TN": 200,
+                "unprocessed": 0
+              },
+              "30": {
+                "n": 225,
+                "TP": 24,
+                "FP": 1,
+                "FN": 1,
+                "TN": 199,
+                "unprocessed": 0
+              },
+              "60": {
+                "n": 225,
+                "TP": 24,
+                "FP": 2,
+                "FN": 1,
+                "TN": 198,
+                "unprocessed": 0
+              },
+              "90": {
+                "n": 225,
+                "TP": 25,
+                "FP": 0,
+                "FN": 0,
+                "TN": 200,
+                "unprocessed": 0
+              },
+              "120": {
+                "n": 225,
+                "TP": 24,
+                "FP": 0,
+                "FN": 1,
+                "TN": 200,
+                "unprocessed": 0
+              }
+            },
+            "positioning": {
+              "count": 199,
+              "classes": {
+                "aligned_full": 164,
+                "misaligned": 32,
+                "aligned_partial": 3
+              },
+              "overruns": 0,
+              "off_line_median": 0.0,
+              "off_line_max": 232.99999999999997
+            },
+            "truth_changed_by_frame_domain": 0
+          }
+        }
+      },
+      "black": {
+        "crops": {
+          "correct": 71,
+          "over_crop": 5,
+          "no_unique_answer": 31
+        },
+        "crop_states": {
+          "none": 89,
+          "detected": 18
+        },
+        "fingerprint_seconds": 239.5730884448276,
+        "questions": {
+          "q1": {
+            "coverage": {
+              "n": 2775,
+              "TP": 225,
+              "FP": 56,
+              "FN": 19,
+              "TN": 2475,
+              "unprocessed": 0
+            },
+            "semantic": {
+              "n": 2775,
+              "TP": 196,
+              "FP": 85,
+              "FN": 39,
+              "TN": 2455,
+              "unprocessed": 0
+            },
+            "per_source": {
+              "alps": {
+                "n": 695,
+                "TP": 42,
+                "FP": 0,
+                "FN": 3,
+                "TN": 650,
+                "unprocessed": 0
+              },
+              "apollo": {
+                "n": 290,
+                "TP": 6,
+                "FP": 28,
+                "FN": 0,
+                "TN": 256,
+                "unprocessed": 0
+              },
+              "dock": {
+                "n": 360,
+                "TP": 6,
+                "FP": 0,
+                "FN": 4,
+                "TN": 350,
+                "unprocessed": 0
+              },
+              "formation": {
+                "n": 564,
+                "TP": 37,
+                "FP": 32,
+                "FN": 6,
+                "TN": 489,
+                "unprocessed": 0
+              },
+              "light": {
+                "n": 564,
+                "TP": 39,
+                "FP": 19,
+                "FN": 4,
+                "TN": 502,
+                "unprocessed": 0
+              },
+              "moon": {
+                "n": 564,
+                "TP": 38,
+                "FP": 23,
+                "FN": 5,
+                "TN": 498,
+                "unprocessed": 0
+              },
+              "night": {
+                "n": 759,
+                "TP": 55,
+                "FP": 9,
+                "FN": 0,
+                "TN": 695,
+                "unprocessed": 0
+              },
+              "ocean": {
+                "n": 290,
+                "TP": 6,
+                "FP": 0,
+                "FN": 0,
+                "TN": 284,
+                "unprocessed": 0
+              },
+              "portrait": {
+                "n": 290,
+                "TP": 6,
+                "FP": 1,
+                "FN": 0,
+                "TN": 283,
+                "unprocessed": 0
+              },
+              "slides": {
+                "n": 360,
+                "TP": 10,
+                "FP": 0,
+                "FN": 0,
+                "TN": 350,
+                "unprocessed": 0
+              },
+              "stars": {
+                "n": 219,
+                "TP": 3,
+                "FP": 0,
+                "FN": 0,
+                "TN": 216,
+                "unprocessed": 0
+              },
+              "zion": {
+                "n": 360,
+                "TP": 6,
+                "FP": 0,
+                "FN": 4,
+                "TN": 350,
+                "unprocessed": 0
+              }
+            },
+            "per_scenario": {
+              "blurred-reframe": {
+                "n": 147,
+                "TP": 9,
+                "FP": 0,
+                "FN": 3,
+                "TN": 135,
+                "unprocessed": 0
+              },
+              "four-three": {
+                "n": 290,
+                "TP": 6,
+                "FP": 28,
+                "FN": 0,
+                "TN": 256,
+                "unprocessed": 0
+              },
+              "landscape": {
+                "n": 695,
+                "TP": 42,
+                "FP": 0,
+                "FN": 3,
+                "TN": 650,
+                "unprocessed": 0
+              },
+              "lettered-bars": {
+                "n": 290,
+                "TP": 14,
+                "FP": 0,
+                "FN": 8,
+                "TN": 268,
+                "unprocessed": 0
+              },
+              "locked-off": {
+                "n": 360,
+                "TP": 6,
+                "FP": 0,
+                "FN": 4,
+                "TN": 350,
+                "unprocessed": 0
+              },
+              "native-portrait": {
+                "n": 290,
+                "TP": 6,
+                "FP": 1,
+                "FN": 0,
+                "TN": 283,
+                "unprocessed": 0
+              },
+              "near-black-bars": {
+                "n": 290,
+                "TP": 20,
+                "FP": 1,
+                "FN": 2,
+                "TN": 267,
+                "unprocessed": 0
+              },
+              "night": {
+                "n": 759,
+                "TP": 55,
+                "FP": 9,
+                "FN": 0,
+                "TN": 695,
+                "unprocessed": 0
+              },
+              "pillarbox": {
+                "n": 74,
+                "TP": 3,
+                "FP": 7,
+                "FN": 0,
+                "TN": 64,
+                "unprocessed": 0
+              },
+              "plain": {
+                "n": 290,
+                "TP": 6,
+                "FP": 0,
+                "FN": 0,
+                "TN": 284,
+                "unprocessed": 0
+              },
+              "rotation-metadata": {
+                "n": 74,
+                "TP": 3,
+                "FP": 0,
+                "FN": 0,
+                "TN": 71,
+                "unprocessed": 0
+              },
+              "series": {
+                "n": 1500,
+                "TP": 85,
+                "FP": 56,
+                "FN": 8,
+                "TN": 1351,
+                "unprocessed": 0
+              },
+              "series-short": {
+                "n": 219,
+                "TP": 15,
+                "FP": 4,
+                "FN": 0,
+                "TN": 200,
+                "unprocessed": 0
+              },
+              "shared-ad": {
+                "n": 429,
+                "TP": 37,
+                "FP": 5,
+                "FN": 2,
+                "TN": 385,
+                "unprocessed": 0
+              },
+              "shared-opening": {
+                "n": 429,
+                "TP": 40,
+                "FP": 52,
+                "FN": 8,
+                "TN": 329,
+                "unprocessed": 0
+              },
+              "short-night": {
+                "n": 219,
+                "TP": 3,
+                "FP": 0,
+                "FN": 0,
+                "TN": 216,
+                "unprocessed": 0
+              },
+              "slides": {
+                "n": 360,
+                "TP": 10,
+                "FP": 0,
+                "FN": 0,
+                "TN": 350,
+                "unprocessed": 0
+              },
+              "speed-full": {
+                "n": 429,
+                "TP": 51,
+                "FP": 2,
+                "FN": 0,
+                "TN": 376,
+                "unprocessed": 0
+              },
+              "speed-partial": {
+                "n": 429,
+                "TP": 48,
+                "FP": 3,
+                "FN": 3,
+                "TN": 375,
+                "unprocessed": 0
+              },
+              "static": {
+                "n": 360,
+                "TP": 6,
+                "FP": 0,
+                "FN": 4,
+                "TN": 350,
+                "unprocessed": 0
+              }
+            },
+            "per_source_semantic": {
+              "alps": {
+                "n": 695,
+                "TP": 42,
+                "FP": 0,
+                "FN": 3,
+                "TN": 650,
+                "unprocessed": 0
+              },
+              "apollo": {
+                "n": 290,
+                "TP": 6,
+                "FP": 28,
+                "FN": 0,
+                "TN": 256,
+                "unprocessed": 0
+              },
+              "dock": {
+                "n": 360,
+                "TP": 6,
+                "FP": 0,
+                "FN": 4,
+                "TN": 350,
+                "unprocessed": 0
+              },
+              "formation": {
+                "n": 564,
+                "TP": 19,
+                "FP": 50,
+                "FN": 9,
+                "TN": 486,
+                "unprocessed": 0
+              },
+              "light": {
+                "n": 564,
+                "TP": 18,
+                "FP": 40,
+                "FN": 10,
+                "TN": 496,
+                "unprocessed": 0
+              },
+              "moon": {
+                "n": 564,
+                "TP": 19,
+                "FP": 42,
+                "FN": 9,
+                "TN": 494,
+                "unprocessed": 0
+              },
+              "night": {
+                "n": 759,
+                "TP": 55,
+                "FP": 9,
+                "FN": 0,
+                "TN": 695,
+                "unprocessed": 0
+              },
+              "ocean": {
+                "n": 290,
+                "TP": 6,
+                "FP": 0,
+                "FN": 0,
+                "TN": 284,
+                "unprocessed": 0
+              },
+              "portrait": {
+                "n": 290,
+                "TP": 6,
+                "FP": 1,
+                "FN": 0,
+                "TN": 283,
+                "unprocessed": 0
+              },
+              "slides": {
+                "n": 360,
+                "TP": 10,
+                "FP": 0,
+                "FN": 0,
+                "TN": 350,
+                "unprocessed": 0
+              },
+              "stars": {
+                "n": 219,
+                "TP": 3,
+                "FP": 0,
+                "FN": 0,
+                "TN": 216,
+                "unprocessed": 0
+              },
+              "zion": {
+                "n": 360,
+                "TP": 6,
+                "FP": 0,
+                "FN": 4,
+                "TN": 350,
+                "unprocessed": 0
+              }
+            },
+            "per_scenario_semantic": {
+              "blurred-reframe": {
+                "n": 147,
+                "TP": 9,
+                "FP": 0,
+                "FN": 3,
+                "TN": 135,
+                "unprocessed": 0
+              },
+              "four-three": {
+                "n": 290,
+                "TP": 6,
+                "FP": 28,
+                "FN": 0,
+                "TN": 256,
+                "unprocessed": 0
+              },
+              "landscape": {
+                "n": 695,
+                "TP": 42,
+                "FP": 0,
+                "FN": 3,
+                "TN": 650,
+                "unprocessed": 0
+              },
+              "lettered-bars": {
+                "n": 290,
+                "TP": 14,
+                "FP": 0,
+                "FN": 8,
+                "TN": 268,
+                "unprocessed": 0
+              },
+              "locked-off": {
+                "n": 360,
+                "TP": 6,
+                "FP": 0,
+                "FN": 4,
+                "TN": 350,
+                "unprocessed": 0
+              },
+              "native-portrait": {
+                "n": 290,
+                "TP": 6,
+                "FP": 1,
+                "FN": 0,
+                "TN": 283,
+                "unprocessed": 0
+              },
+              "near-black-bars": {
+                "n": 290,
+                "TP": 20,
+                "FP": 1,
+                "FN": 2,
+                "TN": 267,
+                "unprocessed": 0
+              },
+              "night": {
+                "n": 759,
+                "TP": 55,
+                "FP": 9,
+                "FN": 0,
+                "TN": 695,
+                "unprocessed": 0
+              },
+              "pillarbox": {
+                "n": 74,
+                "TP": 3,
+                "FP": 7,
+                "FN": 0,
+                "TN": 64,
+                "unprocessed": 0
+              },
+              "plain": {
+                "n": 290,
+                "TP": 6,
+                "FP": 0,
+                "FN": 0,
+                "TN": 284,
+                "unprocessed": 0
+              },
+              "rotation-metadata": {
+                "n": 74,
+                "TP": 3,
+                "FP": 0,
+                "FN": 0,
+                "TN": 71,
+                "unprocessed": 0
+              },
+              "series": {
+                "n": 1500,
+                "TP": 56,
+                "FP": 85,
+                "FN": 28,
+                "TN": 1331,
+                "unprocessed": 0
+              },
+              "series-short": {
+                "n": 219,
+                "TP": 15,
+                "FP": 4,
+                "FN": 6,
+                "TN": 194,
+                "unprocessed": 0
+              },
+              "shared-ad": {
+                "n": 429,
+                "TP": 24,
+                "FP": 18,
+                "FN": 15,
+                "TN": 372,
+                "unprocessed": 0
+              },
+              "shared-opening": {
+                "n": 429,
+                "TP": 20,
+                "FP": 72,
+                "FN": 19,
+                "TN": 318,
+                "unprocessed": 0
+              },
+              "short-night": {
+                "n": 219,
+                "TP": 3,
+                "FP": 0,
+                "FN": 0,
+                "TN": 216,
+                "unprocessed": 0
+              },
+              "slides": {
+                "n": 360,
+                "TP": 10,
+                "FP": 0,
+                "FN": 0,
+                "TN": 350,
+                "unprocessed": 0
+              },
+              "speed-full": {
+                "n": 429,
+                "TP": 51,
+                "FP": 2,
+                "FN": 0,
+                "TN": 376,
+                "unprocessed": 0
+              },
+              "speed-partial": {
+                "n": 429,
+                "TP": 48,
+                "FP": 3,
+                "FN": 3,
+                "TN": 375,
+                "unprocessed": 0
+              },
+              "static": {
+                "n": 360,
+                "TP": 6,
+                "FP": 0,
+                "FN": 4,
+                "TN": 350,
+                "unprocessed": 0
+              }
+            },
+            "per_quote_length": {},
+            "positioning": {
+              "count": 225,
+              "classes": {
+                "aligned_full": 188,
+                "misaligned": 31,
+                "aligned_partial": 6
+              },
+              "overruns": 0,
+              "off_line_median": 7.105427357601002e-14,
+              "off_line_max": 1327.9999999999998
+            },
+            "truth_changed_by_frame_domain": 0
+          },
+          "q2": {
+            "coverage": {
+              "n": 2400,
+              "TP": 210,
+              "FP": 4,
+              "FN": 7,
+              "TN": 2179,
+              "unprocessed": 0
+            },
+            "semantic": {
+              "n": 2400,
+              "TP": 204,
+              "FP": 10,
+              "FN": 25,
+              "TN": 2161,
+              "unprocessed": 0
+            },
+            "per_source": {
+              "alps": {
+                "n": 525,
+                "TP": 62,
+                "FP": 0,
+                "FN": 5,
+                "TN": 458,
+                "unprocessed": 0
+              },
+              "apollo": {
+                "n": 75,
+                "TP": 4,
+                "FP": 0,
+                "FN": 0,
+                "TN": 71,
+                "unprocessed": 0
+              },
+              "dock": {
+                "n": 75,
+                "TP": 4,
+                "FP": 0,
+                "FN": 1,
+                "TN": 70,
+                "unprocessed": 0
+              },
+              "formation": {
+                "n": 75,
+                "TP": 4,
+                "FP": 0,
+                "FN": 0,
+                "TN": 71,
+                "unprocessed": 0
+              },
+              "light": {
+                "n": 75,
+                "TP": 4,
+                "FP": 0,
+                "FN": 0,
+                "TN": 71,
+                "unprocessed": 0
+              },
+              "moon": {
+                "n": 75,
+                "TP": 4,
+                "FP": 0,
+                "FN": 0,
+                "TN": 71,
+                "unprocessed": 0
+              },
+              "night": {
+                "n": 525,
+                "TP": 74,
+                "FP": 3,
+                "FN": 0,
+                "TN": 448,
+                "unprocessed": 0
+              },
+              "ocean": {
+                "n": 525,
+                "TP": 28,
+                "FP": 1,
+                "FN": 0,
+                "TN": 496,
+                "unprocessed": 0
+              },
+              "portrait": {
+                "n": 150,
+                "TP": 8,
+                "FP": 0,
+                "FN": 0,
+                "TN": 142,
+                "unprocessed": 0
+              },
+              "slides": {
+                "n": 75,
+                "TP": 5,
+                "FP": 0,
+                "FN": 0,
+                "TN": 70,
+                "unprocessed": 0
+              },
+              "stars": {
+                "n": 75,
+                "TP": 3,
+                "FP": 0,
+                "FN": 0,
+                "TN": 72,
+                "unprocessed": 0
+              },
+              "zion": {
+                "n": 75,
+                "TP": 4,
+                "FP": 0,
+                "FN": 1,
+                "TN": 70,
+                "unprocessed": 0
+              },
+              "controlled-ad": {
+                "n": 75,
+                "TP": 6,
+                "FP": 0,
+                "FN": 0,
+                "TN": 69,
+                "unprocessed": 0
+              }
+            },
+            "per_scenario": {
+              "blurred-reframe": {
+                "n": 64,
+                "TP": 9,
+                "FP": 0,
+                "FN": 5,
+                "TN": 50,
+                "unprocessed": 0
+              },
+              "controlled-ad": {
+                "n": 75,
+                "TP": 6,
+                "FP": 0,
+                "FN": 0,
+                "TN": 69,
+                "unprocessed": 0
+              },
+              "four-three": {
+                "n": 199,
+                "TP": 4,
+                "FP": 0,
+                "FN": 0,
+                "TN": 195,
+                "unprocessed": 0
+              },
+              "landscape": {
+                "n": 775,
+                "TP": 62,
+                "FP": 1,
+                "FN": 5,
+                "TN": 707,
+                "unprocessed": 0
+              },
+              "lettered-bars": {
+                "n": 128,
+                "TP": 8,
+                "FP": 0,
+                "FN": 2,
+                "TN": 118,
+                "unprocessed": 0
+              },
+              "locked-off": {
+                "n": 230,
+                "TP": 4,
+                "FP": 0,
+                "FN": 1,
+                "TN": 225,
+                "unprocessed": 0
+              },
+              "native-portrait": {
+                "n": 270,
+                "TP": 8,
+                "FP": 0,
+                "FN": 0,
+                "TN": 262,
+                "unprocessed": 0
+              },
+              "near-black-bars": {
+                "n": 128,
+                "TP": 10,
+                "FP": 0,
+                "FN": 0,
+                "TN": 118,
+                "unprocessed": 0
+              },
+              "night": {
+                "n": 800,
+                "TP": 74,
+                "FP": 3,
+                "FN": 0,
+                "TN": 723,
+                "unprocessed": 0
+              },
+              "pillarbox": {
+                "n": 32,
+                "TP": 1,
+                "FP": 0,
+                "FN": 0,
+                "TN": 31,
+                "unprocessed": 0
+              },
+              "plain": {
+                "n": 625,
+                "TP": 28,
+                "FP": 1,
+                "FN": 0,
+                "TN": 596,
+                "unprocessed": 0
+              },
+              "quote-length": {
+                "n": 1350,
+                "TP": 145,
+                "FP": 4,
+                "FN": 5,
+                "TN": 1196,
+                "unprocessed": 0
+              },
+              "rotation-metadata": {
+                "n": 106,
+                "TP": 5,
+                "FP": 0,
+                "FN": 0,
+                "TN": 101,
+                "unprocessed": 0
+              },
+              "series": {
+                "n": 921,
+                "TP": 18,
+                "FP": 3,
+                "FN": 0,
+                "TN": 900,
+                "unprocessed": 0
+              },
+              "series-short": {
+                "n": 96,
+                "TP": 0,
+                "FP": 0,
+                "FN": 0,
+                "TN": 96,
+                "unprocessed": 0
+              },
+              "shared-ad": {
+                "n": 192,
+                "TP": 9,
+                "FP": 2,
+                "FN": 0,
+                "TN": 181,
+                "unprocessed": 0
+              },
+              "shared-opening": {
+                "n": 192,
+                "TP": 0,
+                "FP": 0,
+                "FN": 0,
+                "TN": 192,
+                "unprocessed": 0
+              },
+              "short-night": {
+                "n": 168,
+                "TP": 3,
+                "FP": 0,
+                "FN": 0,
+                "TN": 165,
+                "unprocessed": 0
+              },
+              "slides": {
+                "n": 230,
+                "TP": 5,
+                "FP": 0,
+                "FN": 0,
+                "TN": 225,
+                "unprocessed": 0
+              },
+              "speed-full": {
+                "n": 192,
+                "TP": 42,
+                "FP": 1,
+                "FN": 0,
+                "TN": 149,
+                "unprocessed": 0
+              },
+              "speed-partial": {
+                "n": 192,
+                "TP": 36,
+                "FP": 0,
+                "FN": 0,
+                "TN": 156,
+                "unprocessed": 0
+              },
+              "static": {
+                "n": 230,
+                "TP": 4,
+                "FP": 0,
+                "FN": 1,
+                "TN": 225,
+                "unprocessed": 0
+              }
+            },
+            "per_source_semantic": {},
+            "per_scenario_semantic": {},
+            "per_quote_length": {
+              "10": {
+                "n": 225,
+                "TP": 24,
+                "FP": 1,
+                "FN": 1,
+                "TN": 199,
+                "unprocessed": 0
+              },
+              "20": {
+                "n": 225,
+                "TP": 24,
+                "FP": 0,
+                "FN": 1,
+                "TN": 200,
+                "unprocessed": 0
+              },
+              "30": {
+                "n": 225,
+                "TP": 24,
+                "FP": 1,
+                "FN": 1,
+                "TN": 199,
+                "unprocessed": 0
+              },
+              "60": {
+                "n": 225,
+                "TP": 24,
+                "FP": 2,
+                "FN": 1,
+                "TN": 198,
+                "unprocessed": 0
+              },
+              "90": {
+                "n": 225,
+                "TP": 25,
+                "FP": 0,
+                "FN": 0,
+                "TN": 200,
+                "unprocessed": 0
+              },
+              "120": {
+                "n": 225,
+                "TP": 24,
+                "FP": 0,
+                "FN": 1,
+                "TN": 200,
+                "unprocessed": 0
+              }
+            },
+            "positioning": {
+              "count": 210,
+              "classes": {
+                "aligned_full": 172,
+                "misaligned": 35,
+                "aligned_partial": 3
+              },
+              "overruns": 0,
+              "off_line_median": 0.0,
+              "off_line_max": 20.102564102564102
+            },
+            "truth_changed_by_frame_domain": 0
+          }
+        }
+      }
+    },
+    "freeze_sha256": "9afa666e3f4ebb0ca7fab1a42cd5da54ba377b24d087601bfb67f7b93aa2844d",
+    "truth": "Q1 semantic same-origin and frame-domain longest shared coverage separately; Q2 longest source-domain span; no tuning",
+    "original_source_units": 12,
+    "completed_at": "2026-09-16T02:49:36.883122+00:00",
+    "input_sha256": {
+      "freeze.json": "9afa666e3f4ebb0ca7fab1a42cd5da54ba377b24d087601bfb67f7b93aa2844d",
+      "build.json": "c93e98ce1a1f69593913eb3f6066516dc090f61c70abbe577666b489a7f3a097",
+      "fingerprint-motion/run.json": "f23d7318c9fcfd7d5e952282d8a651412d8ba060b2c62555a6602d642a4f0f39",
+      "fingerprint-black/run.json": "be7cd00bcb3d2a3a3e242e5ec0cf1f0edc6b9932695db37950b02cf412cb6af5",
+      "compare-motion/run.json": "bdd231ae4a9a268a46837b11206e80b31f8b1669db81be69892d86ee5d35a5db",
+      "compare-black/run.json": "c5d8151f68030e6b0d0c3e25692998c58a1468c4b7484287186dc7763334cdce"
+    }
+  },
+  "limits": [
+    "Source and series correlated; pair counts are not independent samples.",
+    "Controlled inserted ad is synthetic, not an independent source.",
+    "Original AD.mp4 provenance unknown.",
+    "Source crop truth uses visual inspection and known constructions; not exhaustive frame annotation.",
+    "No product tuning or threshold changes on this set."
+  ]
+}
