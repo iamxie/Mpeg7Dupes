@@ -19,6 +19,19 @@ third-set footage informs a fix or tuning, record its transition to development
 data and retain the original measurements. Do not absorb the separate short
 source threshold or speed-ranking decisions into this work.
 
+## Independently validate the optional fixed crop fallback
+
+The explicit full-frame / fixed-5% cross-view retry is implemented and keeps
+new hits review-only. It does not switch between motion and black detectors.
+The third-set footage and direct-filter crop probe now serve as development
+data for this feature; the earlier frozen validation remains historical evidence.
+
+Done when: evaluate fresh sources and series with positive crops, unrelated
+negatives, static/dark/short footage and position truth; separately measure
+recovered misses, added false positives, and cost. Keep this opt-in and
+review-only unless those measurements justify a new decision. Additional crop
+amounts and shared-decode extraction need their own cost/benefit evidence.
+
 ## Speed-adjusted source coverage (low; separate behaviour change)
 
 `matchframes` counts walk steps; it is not a reliable count of source frames

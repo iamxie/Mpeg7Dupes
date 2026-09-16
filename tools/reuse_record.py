@@ -35,8 +35,10 @@ describe one match two ways.
 #    Match measurements and threshold membership are unchanged.
 # 6: explicit effective crop mode, independently keyed black detector and
 #    colour-cropping warnings. Existing match measurements are unchanged.
-SCHEMA = "find_reuse/6"
-READABLE_SCHEMAS = ("find_reuse/3", "find_reuse/4", "find_reuse/5", SCHEMA)
+# 7: cross-view fallback, needs_review candidates, exact view provenance and
+#    per-pair fallback completion. Thresholds are unchanged.
+SCHEMA = "find_reuse/7"
+READABLE_SCHEMAS = ("find_reuse/3", "find_reuse/4", "find_reuse/5", "find_reuse/6", SCHEMA)
 
 # Exit status of find_reuse.py. Fixed here and in --help, tested in
 # tests/unit/test_find_reuse.py.
@@ -50,12 +52,18 @@ PROCESSED = "processed"
 FAILED = "failed"
 SKIPPED = "skipped"
 MATCHED = "matched"
+NEEDS_REVIEW = "needs_review"
 CHECKED = "checked"
 NOT_COMPARED = "not_compared"
 
 # What the record cannot say, stated in the record so a reader does not have
 # to know the tool to know the limits of its numbers.
 LIMITS = {
+    "crop_fallback": "Optional fixed 5% top/bottom cross-view matches need review. "
+                     "Removing picture content and trying more views can add false matches. "
+                     "This is not bar detection or general spatial alignment. Both directions "
+                     "are recorded; the longest result is displayed, source-cropped first on ties. "
+                     "Review-only results must not trigger automatic duplicate deletion.",
     "matches": "Only pairs at or above min_coverage are in matches. A checked "
                "candidate carries its best coverage against any source, and "
                "nothing else about the pairs below the threshold is kept, so "
@@ -108,6 +116,8 @@ CROP_LABELS = {"disabled": "not enabled", "detected": "detected",
 
 def crop_description(video: dict) -> str:
     state = video.get("crop_state", "unknown")
+    if state == "fixed":
+        return "Fixed 5% top/bottom view (not detected bars): " + video.get("crop", "")
     label = CROP_LABELS.get(state, CROP_LABELS["unknown"])
     if state == "detected" and video.get("crop"):
         label += ", cropped before comparing, " + video["crop"]
@@ -143,9 +153,10 @@ def as_clock(seconds: float) -> str:
 
 def where_of(hit: dict) -> str:
     """The position phrase for one match, from its record alone."""
+    prefix = "Needs review (5% crop fallback); " if hit.get("requires_review") else ""
     if hit["overrun"]:
-        return "position unreliable, the match ran past the end of the video"
-    where = f"starting at {as_clock(hit['start_seconds'])}"
+        return prefix + "position unreliable, the match ran past the end of the video"
+    where = prefix + f"starting at {as_clock(hit['start_seconds'])}"
     ratio = hit.get("framerateratio", 1.0)
     if ratio != 1.0:
         where += (f"; at speed ratio {ratio:.2f}, so the coverage counts the "

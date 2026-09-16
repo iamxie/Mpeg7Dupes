@@ -71,7 +71,7 @@ class BlackVideo(unittest.TestCase):
             run = subprocess.run(command, capture_output=True, text=True, timeout=90)
             self.assertEqual(run.returncode, 0, run.stderr)
             record = json.loads(out.read_text())
-            self.assertEqual(record['schema'], 'find_reuse/6')
+            self.assertEqual(record['schema'], 'find_reuse/7')
             self.assertEqual(record['settings']['crop_mode'], 'black')
             self.assertEqual(record['tool']['detector']['version'], 'black-1')
             self.assertTrue(record['matches'], run.stdout)

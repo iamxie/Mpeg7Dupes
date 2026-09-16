@@ -130,7 +130,8 @@ def bars_lines(match: dict) -> str:
         state = match.get(side + "_crop_state", "detected" if crop else "unknown")
         description = crop_description({"crop": crop, "crop_state": state,
                                         "crop_mode": match.get(side + "_crop_mode")})
-        lines.append(f'<li>Bars on {whose}: {html.escape(description.removeprefix("Bars: "))}</li>')
+        label = "View on " if state == "fixed" else "Bars on "
+        lines.append(f'<li>{label}{whose}: {html.escape(description.removeprefix("Bars: "))}</li>')
     return "".join(lines)
 
 
@@ -150,6 +151,10 @@ def duration_cell(match: dict) -> str:
              f'additional speed-grid error and need visual verification</li>')
     return (
         '<ul class="facts">'
+        + ('<li><b>Needs review: 5% crop fallback</b>. Compared '
+           + html.escape(match['source_view']) + ' source / '
+           + html.escape(match['candidate_view']) + ' candidate. Both directional '
+           'measurements are retained in the JSON.</li>' if match.get('requires_review') else '') +
         f'<li>Source length <b>{as_clock(match["source_seconds"])}</b></li>'
         f'<li>Their video <b>{as_clock(match["candidate_seconds"])}</b></li>'
         f'<li>Matched <b>{as_clock(matched)}</b> ({matched:.0f} s, '
@@ -241,6 +246,10 @@ def video_inventory(record: dict) -> str:
                 continue
             warnings = video_warnings(video, role)
             detail = " ".join(w["message"] for w in warnings)
+            fallback = video.get("crop_fallback")
+            if fallback:
+                detail += (" Fixed view: " + crop_description(fallback) if fallback["status"] == "processed"
+                           else " Fixed view failed: " + fallback["failure"]["reason"])
             status = "no match reaching the threshold" if video["status"] == "checked" else video["status"]
             items.append(f'<li>{html.escape(video["path"])} ({role}, {html.escape(status)}): '
                          f'{html.escape(crop_description(video))}'
@@ -258,9 +267,11 @@ def render(record: dict, missing: list[str], media_paths: dict | None = None) ->
         match = dict(original)
         for side in ("source", "candidate"):
             video = videos.get(match[side + "_path"], {})
-            crop = video.get("crop", match.get(side + "_crop", ""))
+            crop = (match.get(side + "_crop", "") if side + "_view" in match
+                    else video.get("crop", match.get(side + "_crop", "")))
             match[side + "_crop"] = crop
-            match[side + "_crop_state"] = video.get("crop_state", "detected" if crop else "unknown")
+            match[side + "_crop_state"] = ("fixed" if match.get(side + "_view") == "crop5"
+                                            else video.get("crop_state", "detected" if crop else "unknown"))
             match[side + "_crop_mode"] = video.get("crop_mode", "unknown")
             if media_paths:
                 match[side + "_media"] = media_paths[match[side + "_path"]]
@@ -279,6 +290,10 @@ def render(record: dict, missing: list[str], media_paths: dict | None = None) ->
                    f' not processed')
 
     warning = unprocessed(record)
+    reviews = sum(bool(m.get("requires_review")) for m in matches)
+    if reviews:
+        counts += f', {reviews} need review (crop fallback)'
+        warning += '<div class="warn"><b>Needs review</b>: ' + html.escape(LIMITS['crop_fallback']) + '</div>'
     if record.get("error"):
         warning += '<div class="warn">' + html.escape(record["error"]["reason"]) + '</div>'
     if missing:
@@ -331,6 +346,7 @@ def render(record: dict, missing: list[str], media_paths: dict | None = None) ->
       <dt>Bar cropping</dt>
         <dd>{html.escape(settings.get("crop_mode", "motion") + " mode") if settings["crop_bars"] else "off"}</dd>
       <dt>Coarse filter</dt><dd>{"off, -d 10001" if settings.get("coarse_filter") is False else "on"}</dd>
+      <dt>Fixed 5% fallback</dt><dd>{"on; additional hits need review" if settings.get("crop_fallback") else "off"}</dd>
       <dt>Comparison built</dt><dd>{html.escape(tool)}</dd>
       <dt>Comparison arguments</dt><dd><code>{flags}</code></dd>
     </dl>

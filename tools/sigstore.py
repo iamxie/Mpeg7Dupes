@@ -136,7 +136,7 @@ SIG_HEADER_BYTES = (SIG_HEADER_BITS + 7) // 8
 # 'failed' is not among them: a video whose bars could not be looked for is a
 # file that failed, not a signature with no bars. 'unknown' is what an index
 # from before schema 2 can say about a cropped signature with no crop.
-CROP_STATES = ("disabled", "detected", "none", "uncertain", "unknown")
+CROP_STATES = ("disabled", "detected", "none", "uncertain", "unknown", "fixed")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (

@@ -67,6 +67,15 @@ class SignatureError(RuntimeError):
     """One file could not be fingerprinted; the message says why."""
 
 
+# Deterministic crop recipe, not a bar detector. The versioned crop key keeps
+# it separate from motion, black, and uncropped signatures without migration.
+FIXED_CROP_ID = "fixed5-1"
+
+
+def crop_id(mode: str) -> str:
+    return FIXED_CROP_ID if mode == "fixed5" else detect_bars.detector_id(mode)
+
+
 @dataclass
 class CropDecision:
     state: str        # disabled | detected | none | uncertain | failed
@@ -136,6 +145,18 @@ def decide_crop(path: Path, crop_bars: bool, ffmpeg: str,
         return CropDecision("disabled")
     if detect_bars is None:
         return CropDecision("failed", detail="detect_bars.py is not importable")
+    if crop_mode == "fixed5":
+        geometry = detect_bars.probe(path, ffprobe=ffprobe)
+        if geometry is None:
+            return CropDecision("failed", detail="cannot read display height for fixed crop")
+        height, _ = geometry
+        # Each 5% edge rounds to the nearest even pixel, half upwards.
+        # exact=1 prevents another implicit rounding for subsampled pixels.
+        edge = 2 * math.floor(height / 40 + 0.5)
+        if edge <= 0 or height - 2 * edge < 8:
+            return CropDecision("failed", detail="video too small for fixed 5% crop")
+        return CropDecision("fixed", f"crop=iw:{height - 2 * edge}:0:{edge}:exact=1",
+                            f"fixed {edge} rows at each edge of {height}; not detected bars")
     try:
         found = detect_bars.analyse(
             path, points=detect_bars.POINTS, per_point=detect_bars.PER_POINT,
@@ -214,11 +235,12 @@ def build(src: Path, sig_dir: Path, *, content_hash: str, fps: float,
     before = before or src.stat()
     sigstore.check_unchanged(src, before)
     duration = probe_duration(ffprobe, src)
-    if crop_bars and detect_bars is not None and detector != detect_bars.detector_id(crop_mode):
+    if crop_bars and detect_bars is not None and detector != crop_id(crop_mode):
         raise ValueError("detector identity does not match crop_mode")
     decision = decide_crop(src, crop_bars, ffmpeg, ffprobe, crop_mode=crop_mode)
     if decision.state == "failed":
-        raise SignatureError(f"bar detection failed, {decision.detail}")
+        stage = "fixed crop preparation" if crop_mode == "fixed5" else "bar detection"
+        raise SignatureError(f"{stage} failed, {decision.detail}")
     filename = sigstore.sig_filename(content_hash, fps, crop_bars, detector)
     # Never replace a file that an index row (or an active scan) may still
     # reference. A failed index commit leaves at worst an unreferenced file.
@@ -263,7 +285,7 @@ def make(src: Path, con, sig_dir: Path, *, fps: float, crop_bars: bool,
     changes underfoot, and SignatureError when it cannot be fingerprinted.
     """
     sigstore.fps_tag(fps)  # Reject unusable cache keys before touching the store.
-    if crop_bars and detect_bars is not None and detector != detect_bars.detector_id(crop_mode):
+    if crop_bars and detect_bars is not None and detector != crop_id(crop_mode):
         raise ValueError("detector identity does not match crop_mode")
     if con.in_transaction:
         raise ValueError("make requires a connection without an open transaction")

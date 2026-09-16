@@ -38,7 +38,7 @@ ffprobe and, for the Python tools, mpeg7dupes itself, so that the cache, the
 failure paths and the shape of the data crossing between modules are tested
 without decoding anything.
 
-**Real-tool integration** (`smoke.sh`, `video_io.py`, `black_video.py`) uses generated
+**Real-tool integration** (`smoke.sh`, `video_io.py`, `black_video.py`, `crop_video.py`) uses generated
 synthetic clips through ffmpeg, the store and the binary via
 `tools/find_reuse.py`, twice. This layer runs the real pipeline,
 and what it catches is wiring: the signature format drifting, a filter
@@ -67,6 +67,14 @@ near-black compressed bars, dark and all-black negatives, fades, lettering
 and bars present for only part of the video. It also runs a cold/hot black
 scan through the real binary and checks the JSON and HTML mode and warnings.
 These are development regressions, not independent accuracy measurements.
+
+`unit/test_crop_fallback.py` protects lazy cross-view retries, full-hit
+preservation, both directions, empty CSV misses, separate immutable cache
+entries, hot reuse, invalid geometry and failure records. New CLI/cache cases
+were run failing before implementation. `crop_video.py` checks the actual
+1000×600 → 1000×540 filter, portrait rounding, autorotation, and recovery of a
+losslessly cropped static block image with identical retained pixels. These
+tests do not establish an accuracy rate on natural videos.
 
 ## Tests that used to pin a known limitation
 

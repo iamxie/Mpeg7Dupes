@@ -193,3 +193,4 @@ fi
 # Input format and geometry contracts also require the real decoder.
 MPEG7DUPES="$bin" $runner "$here/video_io.py"
 MPEG7DUPES="$bin" $runner "$here/black_video.py"
+MPEG7DUPES="$bin" $runner "$here/crop_video.py"

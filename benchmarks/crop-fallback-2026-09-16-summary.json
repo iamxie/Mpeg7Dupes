@@ -1,0 +1,232 @@
+{
+  "status": "complete",
+  "kind": "development regression, not independent validation",
+  "full_frame": {
+    "n": 2400,
+    "TP": 208,
+    "FP": 4,
+    "FN": 9,
+    "TN": 2179,
+    "unprocessed": 0
+  },
+  "including_review": {
+    "n": 2400,
+    "TP": 210,
+    "FP": 12,
+    "FN": 7,
+    "TN": 2171,
+    "unprocessed": 0
+  },
+  "additions": 10,
+  "added_true": 2,
+  "added_false": 8,
+  "fallback_pairs": 2188,
+  "comparisons": 6776,
+  "fingerprint_wall_seconds": 94.73457072698511,
+  "scan_seconds": 42.98927954904502,
+  "position_added_true": {
+    "aligned_full": 2
+  },
+  "binary_sha256": "d2ae84649ad4441447f379a5e070571c69b6425eec7c5a3d13815877aba670ff",
+  "record_sha256": "ad5f38f980fd0429f2a83a23313f2c1dcf150794b560eaf7ac2c21d46873dc53",
+  "snapshot_sha256": {
+    "find_reuse.py": "d44108c90ad036b3d691c5d523558b9d3cb969f1ece8d8631f74a0a8bb79437d",
+    "run.py": "1c05d3d25bc540e37e79e02766d0845427a87b7cb94cb84e50161144d8ce1f18",
+    "sigmake.py": "1081c0544a1b037df70328a71e4df314167c9d574c0ae608a8a36e9ccff4d86f",
+    "find_reuse.toml": "8210a5a7f4c13c1ffdf9e2d7bcf734eca5c46b96d1181db183b40cb4f0b2c45a",
+    "detect_bars.py": "bdea5d9390a311e24b6adb1e047d2c2b8210d58b8a113b31b5588683e53f483d",
+    "tool_settings.py": "9185640c167ee35ce2411c5777a4bdcbc81dc74a983e4fcc06d8d8b7ff4809c0",
+    "manifest.json": "5bfafd7b21c14d19e92b830af7411fe2da9323afdb7aa4eafb6379ab5d343dc6",
+    "reuse_record.py": "14b9110b380d8c64ed0d2099a2004343adaa1c1652b5391d134fa08c2d17e52a",
+    "render_report.py": "a4f03e1ea6d00cbade4ba26b32ec87340100a1edd2bb844f796d5680c5d864ee",
+    "sigstore.py": "fb648cdce4b6a7f9d7ccbd84aa818b38f38487fad76062c908bb91ba439d5c0f"
+  },
+  "direct_filter": {
+    "sources": 12,
+    "full_hits": 11,
+    "cross_hits": 12
+  },
+  "base_commit": "0de394a58895ef225068de83110c1c621c617a69",
+  "additions_detail": [
+    {
+      "source": "dock__source",
+      "candidate": "dock__bars",
+      "coverage_truth": true,
+      "position": {
+        "begin_error_frames": 0.0,
+        "end_error_frames": 0.0,
+        "off_line_frames": 0.0,
+        "is_longest": true,
+        "captured_span_fraction": 1.0,
+        "position_class": "aligned_full",
+        "overrun": false
+      }
+    },
+    {
+      "source": "dock__source",
+      "candidate": "dock__barstext",
+      "coverage_truth": true,
+      "position": {
+        "begin_error_frames": 0.0,
+        "end_error_frames": 0.0,
+        "off_line_frames": 0.0,
+        "is_longest": true,
+        "captured_span_fraction": 1.0,
+        "position_class": "aligned_full",
+        "overrun": false
+      }
+    },
+    {
+      "source": "night__quote10",
+      "candidate": "light__adfull",
+      "coverage_truth": false,
+      "position": null
+    },
+    {
+      "source": "night__quote10",
+      "candidate": "light__orig",
+      "coverage_truth": false,
+      "position": null
+    },
+    {
+      "source": "night__quote10",
+      "candidate": "light__small",
+      "coverage_truth": false,
+      "position": null
+    },
+    {
+      "source": "night__quote20",
+      "candidate": "light__adfull",
+      "coverage_truth": false,
+      "position": null
+    },
+    {
+      "source": "night__quote20",
+      "candidate": "light__orig",
+      "coverage_truth": false,
+      "position": null
+    },
+    {
+      "source": "night__quote20",
+      "candidate": "light__small",
+      "coverage_truth": false,
+      "position": null
+    },
+    {
+      "source": "ocean__quote10",
+      "candidate": "alps__small",
+      "coverage_truth": false,
+      "position": null
+    },
+    {
+      "source": "ocean__quote10",
+      "candidate": "alps__speed1.25",
+      "coverage_truth": false,
+      "position": null
+    }
+  ],
+  "baseline_replay": {
+    "status": "complete",
+    "seconds": 21.527155162999406,
+    "baseline_hits": 212,
+    "identical_to_fallback_full_hits": true
+  },
+  "direct_filter_detail": [
+    {
+      "source": "light",
+      "frames": 1275,
+      "full_matchframes": 1275.0,
+      "cross_matchframes": 1275.0,
+      "cross_ratio": 1.0,
+      "alignment_error_seconds": 0
+    },
+    {
+      "source": "formation",
+      "frames": 1477,
+      "full_matchframes": 1477.0,
+      "cross_matchframes": 1477.0,
+      "cross_ratio": 1.0,
+      "alignment_error_seconds": 0
+    },
+    {
+      "source": "moon",
+      "frames": 1078,
+      "full_matchframes": 1078.0,
+      "cross_matchframes": 1078.0,
+      "cross_ratio": 1.0,
+      "alignment_error_seconds": 0
+    },
+    {
+      "source": "zion",
+      "frames": 146,
+      "full_matchframes": 14.0,
+      "cross_matchframes": 146.0,
+      "cross_ratio": 1.0,
+      "alignment_error_seconds": 0
+    },
+    {
+      "source": "stars",
+      "frames": 75,
+      "full_matchframes": 75.0,
+      "cross_matchframes": 75.0,
+      "cross_ratio": 1.0,
+      "alignment_error_seconds": 0
+    },
+    {
+      "source": "slides",
+      "frames": 900,
+      "full_matchframes": 900.0,
+      "cross_matchframes": 900.0,
+      "cross_ratio": 1.0,
+      "alignment_error_seconds": 0
+    },
+    {
+      "source": "dock",
+      "frames": 900,
+      "full_matchframes": 900.0,
+      "cross_matchframes": 900.0,
+      "cross_ratio": 1.0,
+      "alignment_error_seconds": 0
+    },
+    {
+      "source": "night",
+      "frames": 900,
+      "full_matchframes": 900.0,
+      "cross_matchframes": 900.0,
+      "cross_ratio": 1.0,
+      "alignment_error_seconds": 0
+    },
+    {
+      "source": "ocean",
+      "frames": 900,
+      "full_matchframes": 900.0,
+      "cross_matchframes": 900.0,
+      "cross_ratio": 1.0,
+      "alignment_error_seconds": 0
+    },
+    {
+      "source": "alps",
+      "frames": 900,
+      "full_matchframes": 900.0,
+      "cross_matchframes": 900.0,
+      "cross_ratio": 1.0,
+      "alignment_error_seconds": 0
+    },
+    {
+      "source": "portrait",
+      "frames": 1409,
+      "full_matchframes": 1409.0,
+      "cross_matchframes": 1409.0,
+      "cross_ratio": 1.0,
+      "alignment_error_seconds": 0
+    },
+    {
+      "source": "apollo",
+      "frames": 900,
+      "full_matchframes": 900.0,
+      "cross_matchframes": 900.0,
+      "cross_ratio": 1.0,
+      "alignment_error_seconds": 0
+    }
+  ]
+}

@@ -151,6 +151,49 @@ against every candidate and never against each other. `--json` keeps the
 whole run, and `tools/render_report.py` turns that file into a page that
 plays the two videos side by side, parked just before the join.
 
+### Optional fixed 5% crop fallback
+
+```sh
+uv run tools/find_reuse.py --source mine.mp4 --candidates ./downloads \
+    --no-crop-bars --crop-fallback --json reuse.json
+uv run tools/render_report.py reuse.json --out report.html
+```
+
+This opt-in mode compares full frames first. For each pair below the threshold,
+it compares a source cropped 5% at the top and bottom against the full candidate,
+and the full source against a similarly cropped candidate. The 1000×540 centre
+of a 1000×600 original can thus match the full frame of its cropped copy.
+Cropping both videos again would lose that alignment.
+
+`--no-crop-bars` is required for an explicit full-frame baseline. The default
+motion/black workflow stays unchanged. Fixed cropping deliberately removes
+picture content; it is not bar detection. Each edge rounds to the nearest even
+pixel, half upwards, using the displayed height after autorotation. The actual
+filter is recorded. ffmpeg applies `crop` before `fps,signature` directly; no
+intermediate video is created or re-encoded.
+
+Only videos involved in below-threshold pairs need the extra signature. The
+first request decodes that video again; later scans reuse both views. Each
+retried pair costs two extra comparisons. This version does not combine the
+signature extractions into one decode.
+
+Added hits carry `requires_review: true`; a candidate with only these hits has
+status `needs_review`. The terminal and HTML label them **Needs review**.
+More views can add false matches; do not use these results for automatic
+duplicate deletion. Thresholds, speed ranking and temporal coverage rules are
+unchanged. General spatial alignment and arbitrary crops remain unsupported.
+See [benchmark.md](benchmark.md) for the development measurements.
+
+Both directional measurements and signature identities are in `view_evidence`;
+the longest result is displayed, source-cropped first on ties. `fallback.pairs`
+also retains the original full-frame measurement and completion of both
+directions, including absent CSV matches. A fallback preparation or comparison
+failure exits 2, preserves earlier completed hits, and prevents unchecked pairs
+from becoming misses. `comparison.sources_completed` covers the whole requested
+process; `full_frame_sources_completed` separately records the baseline stage.
+The fallback audit covers usable signatures; the top-level summary still
+accounts for files that failed preparation.
+
 ## Reading the result
 
 ### Are these two videos the same
@@ -201,7 +244,7 @@ readable view now.
 
 Every requested source and candidate stays in the JSON record, including
 files that failed and candidates skipped because they are source paths.
-A candidate is `matched`, `checked`, `failed`, `skipped`, or `not_compared`.
+A candidate is `matched`, `needs_review`, `checked`, `failed`, `skipped`, or `not_compared`.
 `checked` means it was compared against every requested source and did not
 reach the threshold. If some sources fail, the record names the sources
 actually compared in `comparison.sources_completed`; a match can still be
@@ -215,8 +258,11 @@ failure. A later comparison failure preserves matches from earlier completed
 sources. Once the input inventory is collected, fatal errors also write a
 record when `--json` is supplied, so an earlier successful record is not left
 looking like this run. JSON is replaced atomically; a write failure leaves
-the previous file intact and reports exit 2. Records use `find_reuse/6`;
-`render_report.py` reads versions 3 through 6 and shows unfinished work.
+the previous file intact and reports exit 2. Records use `find_reuse/7`;
+`render_report.py` reads versions 3 through 7 and shows unfinished work.
+`summary.matches` includes review-only hits; `review_matches` counts that subset.
+A candidate with both normal and review-only hits is `matched`, while each
+pair retains its own `requires_review` flag.
 
 Every processed video carries its crop decision: `disabled`, `detected`,
 `none` or `uncertain` (`unknown` for legacy metadata). These decisions and
@@ -230,10 +276,14 @@ reaching the threshold was found**, which does not rule out reuse.
 `black`, or `disabled`. The selected mode is also in `tool.detector.mode`;
 the cache detector key is `3` for motion and `black-1` for black. Older
 records describe motion cropping, or disabled cropping, and remain readable.
+With fallback enabled, the baseline still says `disabled`. An extra view
+appears under the video's `crop_fallback`, with `crop_state: fixed`,
+`crop_mode: fixed5`, and signature view `crop5`; full-frame views say `full`.
+Each hit names the exact source/candidate view, crop and signature used.
 
 `settings.comparison_args` contains the actual C flags, including the wrapper's
 `-b 0.1 -d 9000 -c 60000`; `tool` records the binary SHA-256, scanner and current
-detector code identities. Each video's `content_hash` is BLAKE2b-128 and its
+detector and signature-producer code identities. Each video's `content_hash` is BLAKE2b-128 and its
 `signature` records the filename, SHA-256, stored detector version and original
 ffmpeg version. The stored generator version is retained on cache hits; it is
 not replaced by the ffmpeg currently on PATH. A legacy missing identity stays
@@ -310,6 +360,12 @@ and row; active scans can continue reading their original signature. Rebuilds
 can leave unreferenced generations in this cache; there is no automatic garbage
 collection. Keep the index with the directory and use the index to select
 signatures, rather than comparing every generation found by a glob.
+
+Fixed views use crop recipe key `fixed5-1`, separate from motion `3`, black
+`black-1`, and uncropped signatures. This uses the existing schema 2 key without
+migration or invalidating existing views. The historical column `detector`
+also holds the deterministic crop recipe version; `fixed5-1` does not claim
+that bars were detected.
 
 Concurrent producers on one machine use a file lock per cache key, recheck the
 cache after waiting, and do not hold a SQLite write transaction during ffmpeg.

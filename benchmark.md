@@ -7,6 +7,8 @@ Its input contracts are covered by synthetic smoke tests; these historical
 measurements have not been relabelled as a new independent validation.
 The [third set](#third-independent-validation-2026-09-16) independently measures
 build 12 with motion 3 and black-1 on newly acquired videos.
+Those historical results remain frozen. The same videos subsequently informed
+the optional fixed-crop feature below, so its results are development evidence.
 
 What settings to use, the measurements behind them, and what those
 measurements do and do not tell you.
@@ -996,6 +998,60 @@ declined, and the night sky's clip above.
 - Nothing was changed because of this set, so it is still a validation set.
   A crop for still footage would make it tuning material for the detector,
   and that change would need a third set.
+
+## Fixed 5% crop fallback development regression (2026-09-16)
+
+This tests the opt-in Python scanner feature, with unchanged C build 12,
+`-b 0.1`, default comparison thresholds and 40% source coverage. It first
+compares full frames, then retries below-threshold pairs in both directions:
+source cropped 5% per vertical edge / full candidate, and full source / cropped
+candidate. New hits require review. Motion and black are not mixed into this
+policy. It does not add a C Q1 full-library mode.
+
+The already-seen third-set videos and prior direct-filter probe are now
+development data for this feature. No source selection, crop percentage,
+threshold or truth label was changed after these results. The original third
+batch and its independent evaluation of the previous version remain preserved.
+Machine-readable evidence is in
+[the crop fallback summary](benchmarks/crop-fallback-2026-09-16-summary.json).
+
+All 32 source queries against 75 candidates completed (2,400 Q2 pairs), using
+the frozen frame-domain shared-content truth described in the third-set report:
+
+| Policy | TP | FP | FN | TN |
+| --- | ---: | ---: | ---: | ---: |
+| Full-frame baseline | 208 | 4 | 9 | 2179 |
+| Including review-only fallback hits | 210 | 12 | 7 | 2171 |
+
+**Two misses recovered, eight false positives added.** Recovered pairs were
+`dock__source` against `dock__bars` and `dock__barstext`, both covering the
+complete common span with zero alignment error. Added false positives were
+10/20-second night queries against three light variants, and the 10-second
+ocean query against two Alps variants. These are correlated edits, not eight
+independent samples. Short-source false-match and position limits remain.
+The original black policy had TP 210 / FP 4 on these pairs; fixed cropping is
+not a generally better replacement. Keep it off by default and review-only.
+
+A separate full-frame CLI rerun reproduced all 212 baseline hits exactly,
+including every field. Fallback retried 2,188 pairs in two directions, for
+6,776 comparisons total. On this Linux aarch64 container with jobs=4, the
+cached fallback scan took 43.0 s, versus 21.5 s for the separate baseline.
+Precomputing both views with three workers took 94.7 s. These single runs are
+not a speed guarantee; the public CLI generates second views lazily and
+decodes again on the first request, rather than extracting both in one decode.
+
+The narrower O/cropped-C hypothesis was also checked without exporting or
+re-encoding C: all 12 original fixed-view signatures matched the earlier
+direct-filter C signatures byte for byte. Full O/full C reached the threshold
+for 11 sources. The Zion static shot produced only 14/146 frames (9.6%);
+cropped O/full C produced 146/146, ratio 1, with matching time positions.
+All 12 cross branches reached 100%. This confirms alignment of identical
+retained pixels; it is not evidence for arbitrary crops or general accuracy.
+
+Linux `make test`, `make smoke`, and the workspace producer tests passed.
+Synthetic smoke cases additionally cover the exact 1000×600 → 1000×540
+geometry, portrait rounding, autorotation, and lossless static-picture
+recovery. New independent sources are needed before changing this policy.
 
 ## Third independent validation (2026-09-16)
 

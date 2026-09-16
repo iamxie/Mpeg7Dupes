@@ -122,7 +122,7 @@ from tool_settings import validate
 import sigmake  # noqa: E402
 from reuse_record import (  # noqa: E402
     SCHEMA, EXIT_COMPLETE, EXIT_INCOMPLETE, EXIT_UNUSABLE, PROCESSED, FAILED,
-    SKIPPED, MATCHED, CHECKED, NOT_COMPARED, LIMITS, as_clock, where_of)
+    SKIPPED, MATCHED, NEEDS_REVIEW, CHECKED, NOT_COMPARED, LIMITS, as_clock, where_of)
 
 DEFAULTS = {
     "fps": 5.0,
@@ -139,6 +139,7 @@ DEFAULTS = {
     # the settings were tuned on, not an independent one. See benchmark.md.
     "crop_bars": True,
     "crop_mode": "motion",
+    "crop_fallback": False,
     # Let mpeg7dupes' coarse filter skip pairs of segments that cannot match.
     # On the tuning corpus it lost nothing and took two thirds off the
     # comparison time; --no-coarse-filter passes -d 10001 so a run can check
@@ -201,6 +202,9 @@ def build_parser() -> argparse.ArgumentParser:
                         "that has them.")
     p.add_argument("--crop-mode", choices=("motion", "black"),
                    help="Bar detection: motion (default), or opt-in black for plain bars on still footage.")
+    p.add_argument("--crop-fallback", action="store_true", default=None,
+                   help="Retry below-threshold full-frame pairs with fixed 5%% top/bottom cross views. "
+                        "Requires --no-crop-bars; added matches need review.")
     p.add_argument("--no-coarse-filter", dest="coarse_filter",
                    action="store_false", default=None,
                    help="Pass -d 10001 to mpeg7dupes, which turns off the "
@@ -309,6 +313,8 @@ def make_signature(src: Path, con, sig_dir: Path, settings: dict,
             "crop_mode": settings.get("crop_mode", "motion") if settings["crop_bars"] else "disabled",
             "signature": {"filename": made.filename,
                           "sha256": sha256_file(made.path),
+                          "view": "crop5" if made.crop_state == "fixed" else
+                                  "full" if not settings["crop_bars"] else "auto-" + settings["crop_mode"],
                           "ffmpeg": made.ffmpeg, "detector": made.detector}}
     print(f"\n  {src.name}: {crop_description(entry)}")
     for warning in video_warnings(entry, role):
@@ -346,6 +352,7 @@ def video_list(entries: dict, paths: dict, fps: float) -> list[dict]:
                          "content_hash": entry.get("hash"),
                          "content_hash_algorithm": "blake2b-128",
                          "signature": entry.get("signature", {}),
+                         **({"crop_fallback": entry["crop_fallback"]} if "crop_fallback" in entry else {}),
                          # What the bar detector concluded: disabled,
                          # detected, none or uncertain. A record from before
                          # this field was kept says unknown.
@@ -396,6 +403,7 @@ def tool_identity(settings: dict) -> dict:
             "binary_path": str(binary), "binary_sha256": sha256_file(binary),
             "python": sys.version,
             "scanner_sha256": sha256_file(Path(__file__)),
+            "signature_producer_sha256": sha256_file(Path(sigmake.__file__)),
             "detector": {"version": detect_bars.detector_id(settings.get("crop_mode", "motion")) if detect_bars and settings["crop_bars"] else None,
                          "mode": settings.get("crop_mode", "motion") if settings["crop_bars"] else "disabled",
                          "sha256": sha256_file(Path(detect_bars.__file__)) if detect_bars else None,
@@ -417,11 +425,13 @@ def summarise(sources: list[dict], candidates: list[dict],
         "sources_not_compared": count(sources, NOT_COMPARED),
         "candidates_requested": len(candidates),
         "candidates_matched": count(candidates, MATCHED),
+        "candidates_needs_review": count(candidates, NEEDS_REVIEW),
         "candidates_checked": count(candidates, CHECKED),
         "candidates_failed": count(candidates, FAILED),
         "candidates_skipped": count(candidates, SKIPPED),
         "candidates_not_compared": count(candidates, NOT_COMPARED),
         "matches": len(hits),
+        "review_matches": sum(bool(h.get("requires_review")) for h in hits),
     }
 
 
@@ -450,6 +460,7 @@ def build_record(settings: dict, sources: list[dict], candidates: list[dict],
         "settings": {"fps": settings["fps"], "thxh": settings["thxh"],
                      "mode": "longest", "min_coverage": settings["min_coverage"],
                      "crop_bars": settings["crop_bars"],
+                     "crop_fallback": settings.get("crop_fallback", False),
                      "crop_mode": settings.get("crop_mode", "motion") if settings["crop_bars"] else "disabled",
                      "coarse_filter": settings["coarse_filter"],
                      "comparison_args": comparison_args(settings),
@@ -541,6 +552,91 @@ def compare(sig_dir: Path, source_bins: list[str], candidate_bins: list[str],
     if len(source_bins) > 1:
         print()
     return results
+
+
+def compare_crop_fallback(sig_dir, con, source_entries, source_paths, entries,
+                          shown, settings, ffmpeg_ver, results):
+    """Retry only completed full-frame misses, grouping candidates per source.
+
+    Two cross directions, never crop/crop. Keep both measurements and the
+    original full-frame result. A failed branch cannot produce a checked miss;
+    completed earlier sources and all baseline hits remain available.
+    """
+    audit = {"enabled": True, "complete": False, "recipe": sigmake.FIXED_CROP_ID,
+             "pairs": []}
+    completed = []
+    fixed_settings = dict(settings, crop_bars=True, crop_mode="fixed5")
+
+    def fixed(entry, paths, role):
+        if "crop_fallback" not in entry:
+            failures = []
+            made = make_signature(Path(paths[0]), con, sig_dir, fixed_settings,
+                                  sigmake.FIXED_CROP_ID, ffmpeg_ver, failures, role)
+            if made is None:
+                entry["crop_fallback"] = {"status": FAILED, "failure": failures[0]}
+                raise sigmake.SignatureError(failures[0]["reason"])
+            if made["hash"] != entry["hash"] or made["frames"] != entry["frames"]:
+                reason = "video content or sampled frame count changed between full and fixed views"
+                entry["crop_fallback"] = {"status": FAILED, "failure": {"reason": reason}}
+                raise sigmake.SignatureError(reason)
+            entry["crop_fallback"] = dict(made, status=PROCESSED)
+        return entry["crop_fallback"]
+
+    try:
+        for source in sorted(source_entries):
+            base = source_entries[source]
+            pending = [candidate for candidate in sorted(entries)
+                       if (source, candidate) not in results or
+                       100 * results[source, candidate]["matchframes"] / base["frames"]
+                       < settings["min_coverage"]]
+            if not pending:
+                completed.append(source)
+                continue
+            pairs = {}
+            for candidate in pending:
+                item = {"source_signature": source, "candidate_signature": candidate,
+                        "complete": False, "full_result": results.get((source, candidate)),
+                        "directions": []}
+                audit["pairs"].append(item)
+                pairs[candidate] = item
+            cropped_source = fixed(base, source_paths[source], "source")
+            cropped_candidates = {c: fixed(entries[c], shown[c], "candidate") for c in pending}
+            for source_view, candidate_view in (("crop5", "full"), ("full", "crop5")):
+                source_entry = cropped_source if source_view == "crop5" else base
+                candidate_entries = cropped_candidates if candidate_view == "crop5" else entries
+                names = [candidate_entries[c]["filename"] for c in pending]
+                measured = compare(sig_dir, [source_entry["filename"]], names, settings)
+                for candidate in pending:
+                    candidate_entry = candidate_entries[candidate]
+                    found = measured.get((source_entry["filename"], candidate_entry["filename"]))
+                    pairs[candidate]["directions"].append({
+                        "source_view": source_view, "candidate_view": candidate_view,
+                        "source_signature": source_entry["signature"],
+                        "candidate_signature": candidate_entry["signature"],
+                        "source_crop": source_entry["crop"], "candidate_crop": candidate_entry["crop"],
+                        "result": found})
+            for candidate, pair in pairs.items():
+                pair["complete"] = True
+                evidence = [e for e in pair["directions"] if e["result"] is not None]
+                if not evidence:
+                    continue
+                # This selects a display result across views, not the C
+                # algorithm's temporal candidates. Keep the other evidence.
+                selected = max(evidence, key=lambda e: e["result"]["matchframes"])
+                baseline = results.get((source, candidate))
+                if baseline and baseline["matchframes"] >= selected["result"]["matchframes"]:
+                    continue
+                results[source, candidate] = {
+                    **selected["result"],
+                    **{k: v for k, v in selected.items() if k != "result"},
+                    "requires_review": True, "view_evidence": pair["directions"]}
+            completed.append(source)
+    except (OSError, sqlite3.Error, sigmake.SignatureError, sigmake.ToolError, ComparisonError) as exc:
+        error = {"stage": "crop_fallback", "reason": str(exc)}
+        audit["error"] = error
+        return audit, completed, error
+    audit["complete"] = True
+    return audit, completed, None
 
 
 def write_record(path, record):
@@ -663,11 +759,17 @@ def scan(args, settings, sources, requested) -> int:
             error = {"stage": "compare", "reason": str(exc)}
     else:
         error = {"stage": "prepare", "reason": "no usable sources and candidates to compare"}
+    baseline_completed = list(completed)
+    fallback = {"enabled": bool(settings.get("crop_fallback")), "complete": False, "pairs": []}
+    if settings.get("crop_fallback") and error is None:
+        fallback, completed, error = compare_crop_fallback(
+            sig_dir, con, source_entries, source_paths, entries, shown,
+            settings, ffmpeg_ver, results)
     comparison_complete = (error is None and not any(f["role"] == "source" for f in failures))
     compared_paths = [p for key in completed for p in source_paths[key]]
     con.close()
 
-    hits, matched, overran = [], set(), 0
+    hits, matched, reviewed, overran = [], set(), set(), 0
     best: dict[str, float] = {}
     for (source_bin, name), found in results.items():
         source_entry = source_entries[source_bin]
@@ -691,7 +793,7 @@ def scan(args, settings, sources, requested) -> int:
             continue
         if overrun:
             overran += 1
-        matched.add(name)
+        (reviewed if found.get("requires_review") else matched).add(name)
         # Where the match begins in their video, measured, not inferred: the
         # first frame the comparison accepted. Rounded on the way out, since
         # every one of these is a frame index divided by a frame rate.
@@ -718,8 +820,14 @@ def scan(args, settings, sources, requested) -> int:
                     "matched_seconds": round(frames / settings["fps"], 3),
                     "source_seconds": round(source_entry["seconds"], 3),
                     "candidate_seconds": round(entries[name]["seconds"], 3),
-                    "source_crop": source_entry["crop"],
-                    "candidate_crop": entries[name]["crop"],
+                    "source_crop": found.get("source_crop", source_entry["crop"]),
+                    "candidate_crop": found.get("candidate_crop", entries[name]["crop"]),
+                    "source_view": found.get("source_view", source_entry["signature"]["view"]),
+                    "candidate_view": found.get("candidate_view", entries[name]["signature"]["view"]),
+                    "source_signature": found.get("source_signature", source_entry["signature"]),
+                    "candidate_signature": found.get("candidate_signature", entries[name]["signature"]),
+                    "requires_review": found.get("requires_review", False),
+                    "view_evidence": found.get("view_evidence", []),
                     "start_seconds": round(found["other_begin"], 3),
                     "end_seconds": round(found["other_end"], 3),
                     # And the same span inside the source, which says which
@@ -743,13 +851,13 @@ def scan(args, settings, sources, requested) -> int:
     if hits:
         print(f"  note     {LIMITS['endpoints']}", file=sys.stderr)
     print(f"  note     {LIMITS['reframe']}", file=sys.stderr)
-    misses = [path for name in entries if name not in matched
+    misses = [path for name in entries if name not in matched | reviewed
               for path in shown[name]] if comparison_complete else []
     if args.show_misses and comparison_complete:
         if misses:
             print(f"  note     {LIMITS['misses']}", file=sys.stderr)
         for name in sorted(entries, key=lambda n: shown[n][0]):
-            if name not in matched:
+            if name not in matched | reviewed:
                 for path in shown[name]:
                     print(f"{path}   no match reaching the threshold, best "
                           f"{best.get(name, 0.0):.0f}%")
@@ -767,6 +875,8 @@ def scan(args, settings, sources, requested) -> int:
           f"against {source_count} source{'s' if source_count != 1 else ''}, "
           f"{len(hits)} match{'es' if len(hits) != 1 else ''} over "
           f"{settings['min_coverage']:.0f}%")
+    if reviewed:
+        print(f"  Needs review: {sum(h['requires_review'] for h in hits)} crop fallback matches")
     if overran:
         print(f"{overran} of them ran past the end of the video they were found "
               f"in, so their length and position mean nothing. The match itself "
@@ -778,8 +888,10 @@ def scan(args, settings, sources, requested) -> int:
 
     candidate_rows = video_list(entries, shown, settings["fps"])
     matched_paths = {path for name in matched for path in shown[name]}
+    reviewed_paths = {path for name in reviewed for path in shown[name]}
     for row_ in candidate_rows:
         row_["status"] = (MATCHED if row_["path"] in matched_paths else
+                          NEEDS_REVIEW if row_["path"] in reviewed_paths else
                           CHECKED if comparison_complete else NOT_COMPARED)
         row_["comparison_complete"] = comparison_complete
         if not comparison_complete:
@@ -806,6 +918,10 @@ def scan(args, settings, sources, requested) -> int:
         record = build_record(settings, source_rows, candidate_rows, hits,
                               misses, summary)
         record["comparison"] = {"complete": summary["complete"], "sources_completed": compared_paths}
+        if settings.get("crop_fallback"):
+            record["fallback"] = fallback
+            record["comparison"]["full_frame_sources_completed"] = [
+                p for key in baseline_completed for p in source_paths[key]]
         if error:
             record["error"] = error
         try:
