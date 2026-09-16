@@ -16,8 +16,8 @@
  * A commit touching only documentation does not need a bump. Bumping anyway
  * costs nothing, and being wrong about which build made a result costs a rerun.
  */
-#define MPEG7DUPES_VERSION "0.2"
-#define MPEG7DUPES_BUILD 13
+#define MPEG7DUPES_VERSION "0.2.1"
+#define MPEG7DUPES_BUILD 14
 
 /* Two levels, because a macro argument is only expanded before stringifying if
  * it passes through a second macro first. One level would give "b

@@ -77,7 +77,8 @@ echo "Comparing the fixtures with $bin"
 # commit, and a test that has to be edited each time is a test that gets
 # edited without being read. What matters is that the banner is there at the
 # default verbosity, since a run whose build is unknown has to be repeated.
-banner='mpeg7dupes v[0-9]+\.[0-9]+ b[0-9]+'
+# Accept both the original major.minor releases and major.minor.patch releases.
+banner='mpeg7dupes v[0-9]+\.[0-9]+(\.[0-9]+)? b[0-9]+'
 check "every run says which build produced it" \
     "$(grep -cE "$banner" "$work/out.err")" 1
 
