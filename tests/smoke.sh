@@ -198,3 +198,4 @@ MPEG7DUPES="$bin" $runner "$here/black_video.py"
 MPEG7DUPES="$bin" $runner "$here/crop_video.py"
 
 MPEG7DUPES="$bin" $runner "$here/profile_video.py"
+MPEG7DUPES="$bin" $runner "$here/coverage_video.py"

@@ -229,22 +229,31 @@ def produce(src: Path, sig_dir: Path, filename: str, crop: str, fps: float,
 
 def build(src: Path, sig_dir: Path, *, content_hash: str, fps: float,
           crop_bars: bool, detector: str, ffmpeg: str, ffprobe: str,
-          hwaccel: str = "", before=None, crop_mode: str = "motion") -> Built:
+          hwaccel: str = "", before=None, crop_mode: str = "motion", progress=None) -> Built:
     """Everything that does not touch the index, so a caller may run it on a
     worker thread: probe, decide about bars, produce, read the count back."""
     before = before or src.stat()
     sigstore.check_unchanged(src, before)
+    if progress:
+        progress("reading video metadata")
     duration = probe_duration(ffprobe, src)
     if crop_bars and detect_bars is not None and detector != crop_id(crop_mode):
         raise ValueError("detector identity does not match crop_mode")
+    if progress:
+        progress(f"deciding crop: {crop_mode if crop_bars else 'disabled'}")
     decision = decide_crop(src, crop_bars, ffmpeg, ffprobe, crop_mode=crop_mode)
     if decision.state == "failed":
         stage = "fixed crop preparation" if crop_mode == "fixed5" else "bar detection"
         raise SignatureError(f"{stage} failed, {decision.detail}")
+    if progress:
+        progress(f"crop decision: {decision.state}; {decision.crop or 'full frame'}"
+                 + (f"; {decision.detail}" if decision.detail else ""))
     filename = sigstore.sig_filename(content_hash, fps, crop_bars, detector)
     # Never replace a file that an index row (or an active scan) may still
     # reference. A failed index commit leaves at worst an unreferenced file.
     filename = filename[:-4] + ".gen-" + secrets.token_hex(16) + ".sig"
+    if progress:
+        progress(f"extracting signature: {duration:.1f}s video at {fps:g} fps")
     header = produce(src, sig_dir, filename, decision.crop, fps, ffmpeg, hwaccel,
                      before=before)
     return Built(duration, decision, header["frames"], filename)
@@ -277,7 +286,7 @@ def lookup(con, sig_dir: Path, content_hash: str, *, fps: float,
 def make(src: Path, con, sig_dir: Path, *, fps: float, crop_bars: bool,
          detector: str, ffmpeg: str, ffprobe: str, ffmpeg_version: str,
          hwaccel: str = "", overwrite: bool = False, identified=None,
-         crop_mode: str = "motion") -> Signature:
+         crop_mode: str = "motion", progress=None) -> Signature:
     """The whole flow for one video on the calling thread: identify it, reuse
     the store's signature if there is one, otherwise make and record one.
 
@@ -289,6 +298,8 @@ def make(src: Path, con, sig_dir: Path, *, fps: float, crop_bars: bool,
         raise ValueError("detector identity does not match crop_mode")
     if con.in_transaction:
         raise ValueError("make requires a connection without an open transaction")
+    if progress:
+        progress("checking file identity cache")
     if identified is not None:
         content_hash, stat = identified
         sigstore.check_unchanged(src, stat)
@@ -296,7 +307,11 @@ def make(src: Path, con, sig_dir: Path, *, fps: float, crop_bars: bool,
         stat = src.stat()
         content_hash = None if overwrite else sigstore.known_hash(con, src, stat)
         if content_hash is None:
+            if progress:
+                progress(f"hashing video: {stat.st_size / 1048576:.1f} MiB")
             content_hash, stat = sigstore.identify(src)
+    if progress:
+        progress("checking signature cache / acquiring cache lock")
     with sigstore.signature_lock(con, content_hash, fps, crop_bars, detector):
         sigstore.check_unchanged(src, stat)
         if not overwrite:
@@ -304,11 +319,18 @@ def make(src: Path, con, sig_dir: Path, *, fps: float, crop_bars: bool,
                            crop_bars=crop_bars, detector=detector)
             if found:
                 sigstore.remember_file(con, src, content_hash, stat)
+                if progress:
+                    progress("signature cache hit")
                 return found
+        if progress:
+            progress("signature rebuild requested" if overwrite else "signature cache miss")
         built = build(src, sig_dir, content_hash=content_hash, fps=fps,
                       crop_bars=crop_bars, detector=detector, ffmpeg=ffmpeg,
-                      ffprobe=ffprobe, hwaccel=hwaccel, before=stat, crop_mode=crop_mode)
+                      ffprobe=ffprobe, hwaccel=hwaccel, before=stat, crop_mode=crop_mode,
+                      **({"progress": progress} if progress else {}))
         try:
+            if progress:
+                progress("saving signature cache")
             sigstore.check_unchanged(src, stat)
             con.execute("BEGIN IMMEDIATE")
             record(con, content_hash, stat.st_size, built, fps=fps,

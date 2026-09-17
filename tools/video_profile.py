@@ -156,7 +156,9 @@ def probe(src, ffprobe):
     return info
 
 
-def build(src, directory, ffmpeg, ffprobe):
+def build(src, directory, ffmpeg, ffprobe, *, progress=None):
+    if progress:
+        progress('reading colour metadata')
     color = probe(src, ffprobe)
     if not color['supported']:
         return {'status': 'unsupported', 'reason': 'HDR or unsupported transfer function: '
@@ -170,12 +172,16 @@ def build(src, directory, ffmpeg, ffprobe):
                  'out_range=pc,format=yuv444p,split=2[whole][middle];'
                  f'[whole]{stats}full.txt[f];'
                  f'[middle]crop=128:72:16:9:exact=1,{stats}center.txt[c]')
+        if progress:
+            progress('analyzing darkness and visual change (2 fps)')
         done = run_tool([ffmpeg, '-nostdin', '-hide_banner', '-v', 'error', '-xerror',
                         '-i', str(src.resolve()), '-filter_complex_threads', '1',
                         '-filter_complex', graph, '-map', '[f]', '-map', '[c]', '-an', '-f', 'null', '-'],
                        cwd=work, capture_output=True, text=True)
         if done.returncode:
             raise ProfileError(f'analysis decoder failed ({done.returncode}): {done.stderr.strip()[:300]}')
+        if progress:
+            progress('reading analysis measurements')
         try:
             full = parse_metadata((work / 'full.txt').read_text())
             center = parse_metadata((work / 'center.txt').read_text())
@@ -195,16 +201,21 @@ def build(src, directory, ffmpeg, ffprobe):
     return result
 
 
-def make(src, con, directory, *, content_hash, ffmpeg, ffprobe, ffmpeg_version, overwrite=False):
+def make(src, con, directory, *, content_hash, ffmpeg, ffprobe, ffmpeg_version,
+         overwrite=False, progress=None):
     """Independent content/recipe cache; signatures are neither changed nor retired."""
     stat = src.stat()
     actual = sigstore.known_hash(con, src, stat)
     if actual is None:
+        if progress:
+            progress('hashing video for analysis')
         actual, stat = sigstore.identify(src)
     if actual != content_hash:
         raise ProfileError('video changed between fingerprinting and analysis')
     database = Path(con.execute('PRAGMA database_list').fetchone()[2])
     lock = database.parent / ('.' + database.name + '.locks') / ('visual-' + content_hash + '-' + RECIPE_ID)
+    if progress:
+        progress('checking analysis cache / acquiring cache lock')
     with sigstore.file_lock(lock):
         sigstore.check_unchanged(src, stat)
         row = con.execute('SELECT filename, digest FROM profiles WHERE hash=? AND recipe=?',
@@ -215,10 +226,15 @@ def make(src, con, directory, *, content_hash, ffmpeg, ffprobe, ffmpeg_version, 
                 if hashlib.sha256(raw).hexdigest() == row[1]:
                     p = json.loads(raw)
                     if p['content_hash'] == content_hash and p['recipe_id'] == RECIPE_ID:
+                        if progress:
+                            progress('analysis cache hit')
                         return dict(p, cache={'filename': row[0], 'sha256': row[1]})
             except (OSError, ValueError, KeyError):
                 pass
-        p = build(src, directory, ffmpeg, ffprobe)
+        if progress:
+            progress('analysis rebuild requested' if overwrite else 'analysis cache miss')
+        p = build(src, directory, ffmpeg, ffprobe,
+                  **({'progress': progress} if progress else {}))
         p.update(version=VERSION, recipe=RECIPE, recipe_id=RECIPE_ID, content_hash=content_hash,
                  ffmpeg=ffmpeg_version, generated_at=datetime.now(timezone.utc).isoformat())
         raw = (json.dumps(p, ensure_ascii=False, allow_nan=False) + '\n').encode()
@@ -226,6 +242,8 @@ def make(src, con, directory, *, content_hash, ffmpeg, ffprobe, ffmpeg_version, 
         name = f'{content_hash}.{VERSION}.gen-{secrets.token_hex(16)}.json'
         path = directory / name
         try:
+            if progress:
+                progress('saving analysis cache')
             with path.open('xb') as handle:
                 handle.write(raw)
                 handle.flush()

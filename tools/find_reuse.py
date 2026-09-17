@@ -9,10 +9,11 @@ find_reuse.py
 Takes a video, or a folder of them, and scans another folder for files that
 contain any of them.
 
-The situation this is for: you made a short film, and someone tells you a
-company cut it into one of their videos. You do not need to know exactly how
-many seconds they took. You need to know that it is over some proportion, and
-roughly where, which is enough to go and comment under their video.
+Sources are your originals and candidates are the files to search. The
+reporting threshold defaults to matched frames divided by the shorter video's
+frame count, so a short excerpt of a long original can be reported. Select
+--min-source-coverage to retain the source-only rule used through v0.2.1.
+The two coverage options are mutually exclusive; see README.md#coverage-options.
 
     uv run tools/find_reuse.py --source ./my_clips --candidates ./downloads
 
@@ -42,14 +43,13 @@ Point --db and --sig-dir at one store from several tools and they share the
 work; the index names files relative to the directory, so one without the
 other finds nothing.
 
-One number not to quote
+Coverage is approximate
 -----------------------
-Coverage runs a little high. Clips using 86%, 50% and 30% of the reference came
-back as 88%, 54% and 33%: the walk that extends a match carries a few frames
-past each end of what is really shared. So the output says only that a
-threshold was passed, never a percentage, and --min-coverage 40 fires at around
-36% of real use. Erring that way is deliberate: better to look at a few extra
-videos than to miss one.
+The terminal and report show matched duration and both side percentages as
+walk-count estimates, not confidence scores. Boundary extension can inflate
+them, and the shared match count is not adjusted to each timeline at another
+speed. The selected denominator controls the threshold and crop-fallback gate;
+it does not change signature generation or the C comparison.
 
 The start used to be the other one. It was reported as a range, because what
 this read out of the CSV was the seed the walk grew from, and subtracting the
@@ -100,6 +100,7 @@ import io
 import shutil
 import subprocess
 import sys
+import time
 import tomllib
 from pathlib import Path
 from reuse_record import crop_description, video_warnings
@@ -121,13 +122,16 @@ import sigstore  # noqa: E402
 from tool_settings import validate
 import sigmake  # noqa: E402
 import video_profile
+from scan_progress import Progress
 from reuse_record import (  # noqa: E402
     SCHEMA, EXIT_COMPLETE, EXIT_INCOMPLETE, EXIT_UNUSABLE, PROCESSED, FAILED,
-    SKIPPED, MATCHED, NEEDS_REVIEW, CHECKED, NOT_COMPARED, LIMITS, as_clock, where_of)
+    SKIPPED, MATCHED, NEEDS_REVIEW, CHECKED, NOT_COMPARED, LIMITS, as_clock, where_of,
+    COVERAGE_CONFLICT, coverage_rule, coverage_values, coverage_label, coverage_limit)
 
 DEFAULTS = {
     "fps": 5.0,
     "min_coverage": 40.0,
+    "min_source_coverage": None,
     # Measured over 96 videos: raising this from 60 to 290 took two whole
     # families of edit, black bars and black bars with text, from never
     # detected to always detected, and added no false positives. Below it they
@@ -162,8 +166,15 @@ INDEX_NAME = "index.sqlite"
 
 
 
+class ScanParser(argparse.ArgumentParser):
+    def error(self, message):
+        if '--min-coverage' in message and '--min-source-coverage' in message:
+            message = COVERAGE_CONFLICT
+        super().error(message)
+
+
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(
+    p = ScanParser(
         description="Find which videos in a folder contain a given source video.",
         epilog=f"exit status: {EXIT_COMPLETE} when every requested file was "
                f"processed, whether or not anything matched; {EXIT_INCOMPLETE} "
@@ -175,8 +186,13 @@ def build_parser() -> argparse.ArgumentParser:
                    help="The video to look for, or a folder of them.")
     p.add_argument("--candidates", required=True, metavar="PATH",
                    help="Folder to search, walked recursively, or one file.")
-    p.add_argument("--min-coverage", type=float, metavar="PCT",
-                   help="Report a candidate at this much of the source, in percent. Default 40.")
+    coverage = p.add_mutually_exclusive_group()
+    coverage.add_argument("--min-coverage", type=float, metavar="PCT",
+                          help="Minimum coverage of the shorter video, in percent. Default 40. "
+                               "See README.md#coverage-options.")
+    coverage.add_argument("--min-source-coverage", type=float, metavar="PCT",
+                          help="Use source-only coverage instead (legacy rule). "
+                               "Cannot combine with --min-coverage; see README.md#coverage-options.")
     p.add_argument("--sig-dir", metavar="DIR",
                    help="Where to cache signatures. Defaults to .signatures under the candidates.")
     p.add_argument("--db", metavar="FILE",
@@ -196,6 +212,8 @@ def build_parser() -> argparse.ArgumentParser:
                         "the hits, but it is the only way to tell a candidate "
                         "that was checked and cleared from one that was never "
                         "read at all.")
+    p.add_argument("--quiet", action="store_true",
+                   help="Hide detailed progress and heartbeats; keep results and warnings.")
     p.add_argument("--no-crop-bars", dest="crop_bars", action="store_false",
                    default=None,
                    help="Do not look for bars along the top and bottom, and "
@@ -244,7 +262,13 @@ def load_settings(args: argparse.Namespace) -> dict:
         raise ValueError(f"no such config: {config}")
     if config.is_file():
         with config.open("rb") as fh:
-            for key, value in tomllib.load(fh).items():
+            configured = tomllib.load(fh)
+            if 'min_coverage' in configured and 'min_source_coverage' in configured:
+                raise ValueError(f"{config}: {COVERAGE_CONFLICT} "
+                                 "TOML keys min_coverage and min_source_coverage also require choosing only one.")
+            if 'min_source_coverage' in configured:
+                settings['min_coverage'] = None
+            for key, value in configured.items():
                 if key not in settings:
                     raise ValueError(f"unknown setting in {config}: {key}")
                 settings[key] = value
@@ -256,6 +280,12 @@ def load_settings(args: argparse.Namespace) -> dict:
         # None for the same reason, so an absent one leaves the toml alone.
         if value is not None:
             settings[key] = value
+    # A CLI coverage choice replaces the entire lower-priority choice, not
+    # merely its numeric value. The shipped TOML must not block source mode.
+    if getattr(args, 'min_source_coverage', None) is not None:
+        settings['min_coverage'] = None
+    elif getattr(args, 'min_coverage', None) is not None:
+        settings['min_source_coverage'] = None
     validate(settings)
     return settings
 
@@ -279,7 +309,7 @@ def need(program: str, what: str) -> str:
 
 def make_signature(src: Path, con, sig_dir: Path, settings: dict,
                    detector: str, ffmpeg: str, failures: list,
-                   role: str) -> dict | None:
+                   role: str, *, progress=None) -> dict | None:
     """The signature for this video, made only if the store has not got it.
 
     Two levels of cache, and each skips a different expense. The store answers
@@ -299,7 +329,7 @@ def make_signature(src: Path, con, sig_dir: Path, settings: dict,
             crop_bars=settings["crop_bars"], detector=detector,
             ffmpeg=settings["ffmpeg"], ffprobe=settings["ffprobe"],
             ffmpeg_version=ffmpeg, overwrite=settings["overwrite"],
-            crop_mode=settings.get("crop_mode", "motion"))
+            crop_mode=settings.get("crop_mode", "motion"), progress=progress)
     except sigmake.ToolError:
         raise
     except (OSError, sigmake.SignatureError) as exc:
@@ -311,9 +341,8 @@ def make_signature(src: Path, con, sig_dir: Path, settings: dict,
         print(f"\n  failed   {src.name}: {stage}, {exc}", file=sys.stderr)
         return None
 
-    # The caller draws a progress counter with a carriage return and no
-    # newline, so anything printed here has to start its own line or it lands
-    # in the middle of that one.
+    if progress:
+        progress("recording signature checksum")
     entry = {"hash": made.content_hash, "filename": made.filename,
             "seconds": round(made.duration, 3), "frames": made.frames, "fps": settings["fps"],
             "crop": made.crop, "crop_state": made.crop_state,
@@ -323,9 +352,13 @@ def make_signature(src: Path, con, sig_dir: Path, settings: dict,
                           "view": "crop5" if made.crop_state == "fixed" else
                                   "full" if not settings["crop_bars"] else "auto-" + settings["crop_mode"],
                           "ffmpeg": made.ffmpeg, "detector": made.detector}}
-    print(f"\n  {src.name}: {crop_description(entry)}")
-    for warning in video_warnings(entry, role):
+    print(f"\n  {src.name}: {crop_description(entry)}", flush=True)
+    for warning in video_warnings(entry, role, coverage_rule(settings)[0]):
         print(f"  note     {src.name}: {warning['message']}", file=sys.stderr)
+    if progress:
+        progress(f"signature {'generated' if made.produced else 'cache hit'}: "
+                 f"{made.frames} frames at {settings['fps']:g} fps; "
+                 f"video {as_clock(made.duration)}")
     return entry
 
 
@@ -413,6 +446,7 @@ def tool_identity(settings: dict) -> dict:
             "analysis": {"version": video_profile.VERSION, "recipe_id": video_profile.RECIPE_ID,
                          "sha256": sha256_file(Path(video_profile.__file__))},
             "scanner_sha256": sha256_file(Path(__file__)),
+            "record_rules_sha256": sha256_file(Path(__file__).with_name("reuse_record.py")),
             "signature_producer_sha256": sha256_file(Path(sigmake.__file__)),
             "detector": {"version": detect_bars.detector_id(settings.get("crop_mode", "motion")) if detect_bars and settings["crop_bars"] else None,
                          "mode": settings.get("crop_mode", "motion") if settings["crop_bars"] else "disabled",
@@ -461,7 +495,7 @@ def build_record(settings: dict, sources: list[dict], candidates: list[dict],
     """
     for role, rows in (("source", sources), ("candidate", candidates)):
         for video in rows:
-            video["warnings"] = video_warnings(video, role)
+            video["warnings"] = video_warnings(video, role, coverage_rule(settings)[0])
     return {
         "schema": SCHEMA,
         "path_base": str(Path.cwd().resolve()),
@@ -469,6 +503,8 @@ def build_record(settings: dict, sources: list[dict], candidates: list[dict],
         "tool": settings.get("_tool_identity") or tool_identity(settings),
         "settings": {"fps": settings["fps"], "thxh": settings["thxh"],
                      "mode": "longest", "min_coverage": settings["min_coverage"],
+                     "min_source_coverage": settings.get("min_source_coverage"),
+                     "coverage_basis": coverage_rule(settings)[0],
                      "crop_bars": settings["crop_bars"],
                      "crop_fallback": settings.get("crop_fallback", False),
                      "analyze": settings.get("analyze", True),
@@ -478,7 +514,7 @@ def build_record(settings: dict, sources: list[dict], candidates: list[dict],
                      "jobs_requested": settings.get("jobs", 0)},
         "summary": summary if summary is not None
                    else summarise(sources, candidates, hits),
-        "limits": dict(LIMITS),
+        "limits": dict(LIMITS, coverage=coverage_limit(coverage_rule(settings)[0])),
         "sources": sources,
         "candidates": candidates,
         "matches": hits,
@@ -537,7 +573,8 @@ def parse_comparison(output, source, candidates):
 
 
 def compare(sig_dir: Path, source_bins: list[str], candidate_bins: list[str],
-            settings: dict) -> dict[tuple[str, str], dict]:
+            settings: dict, *, source_paths=None, progress_enabled=True,
+            label="compare") -> dict[tuple[str, str], dict]:
     """A private pair of lists for each scan; one invocation per source."""
     results, completed = {}, []
     with tempfile.TemporaryDirectory(prefix="mpeg7dupes-compare-") as directory:
@@ -548,25 +585,26 @@ def compare(sig_dir: Path, source_bins: list[str], candidate_bins: list[str],
             source.write_text(source_bin + "\n")
             cmd = [settings["mpeg7dupes"], *comparison_args(settings),
                    "-l", str(candidates), "-n", str(source)]
-            try:
-                done = subprocess.run(cmd, cwd=sig_dir, capture_output=True, text=True)
-                if done.returncode != 0:
-                    raise ValueError(f"mpeg7dupes failed ({done.returncode}): "
-                                     + done.stderr.strip()[:600])
-                parsed = parse_comparison(done.stdout, source_bin, set(candidate_bins))
-            except (OSError, ValueError, csv.Error) as exc:
-                raise ComparisonError(str(exc), results, completed) from exc
+            paths = (source_paths or {}).get(source_bin, [source_bin])
+            with Progress(f"{label} {i}/{len(source_bins)}: {paths[0]!r}",
+                          enabled=progress_enabled) as progress:
+                progress(f"comparing against {len(candidate_bins)} unique candidates")
+                try:
+                    done = subprocess.run(cmd, cwd=sig_dir, capture_output=True, text=True)
+                    if done.returncode != 0:
+                        raise ValueError(f"mpeg7dupes failed ({done.returncode}): "
+                                         + done.stderr.strip()[:600])
+                    parsed = parse_comparison(done.stdout, source_bin, set(candidate_bins))
+                except (OSError, ValueError, csv.Error) as exc:
+                    raise ComparisonError(str(exc), results, completed) from exc
+                progress.finish(f"comparison complete: {len(candidate_bins)} unique candidates")
             results.update(parsed)
             completed.append(source_bin)
-            if len(source_bins) > 1:
-                print(f"\r  comparing {i}/{len(source_bins)} sources", end="", flush=True)
-    if len(source_bins) > 1:
-        print()
     return results
 
 
 def compare_crop_fallback(sig_dir, con, source_entries, source_paths, entries,
-                          shown, settings, ffmpeg_ver, results):
+                          shown, settings, ffmpeg_ver, results, *, progress_enabled=True):
     """Retry only completed full-frame misses, grouping candidates per source.
 
     Two cross directions, never crop/crop. Keep both measurements and the
@@ -576,13 +614,18 @@ def compare_crop_fallback(sig_dir, con, source_entries, source_paths, entries,
     audit = {"enabled": True, "complete": False, "recipe": sigmake.FIXED_CROP_ID,
              "pairs": []}
     completed = []
+    basis, threshold = coverage_rule(settings)
     fixed_settings = dict(settings, crop_bars=True, crop_mode="fixed5")
 
     def fixed(entry, paths, role):
         if "crop_fallback" not in entry:
             failures = []
-            made = make_signature(Path(paths[0]), con, sig_dir, fixed_settings,
-                                  sigmake.FIXED_CROP_ID, ffmpeg_ver, failures, role)
+            with Progress(f"crop fallback {role}: {paths[0]!r}",
+                          enabled=progress_enabled) as progress:
+                made = make_signature(Path(paths[0]), con, sig_dir, fixed_settings,
+                                      sigmake.FIXED_CROP_ID, ffmpeg_ver, failures, role,
+                                      progress=progress)
+                progress.finish("fixed view ready" if made else "fixed view failed")
             if made is None:
                 entry["crop_fallback"] = {"status": FAILED, "failure": failures[0]}
                 raise sigmake.SignatureError(failures[0]["reason"])
@@ -598,8 +641,9 @@ def compare_crop_fallback(sig_dir, con, source_entries, source_paths, entries,
             base = source_entries[source]
             pending = [candidate for candidate in sorted(entries)
                        if (source, candidate) not in results or
-                       100 * results[source, candidate]["matchframes"] / base["frames"]
-                       < settings["min_coverage"]]
+                       coverage_values(results[source, candidate]["matchframes"],
+                                       base["frames"], entries[candidate]["frames"])
+                       [basis + "_coverage_percent"] < threshold]
             if not pending:
                 completed.append(source)
                 continue
@@ -616,7 +660,10 @@ def compare_crop_fallback(sig_dir, con, source_entries, source_paths, entries,
                 source_entry = cropped_source if source_view == "crop5" else base
                 candidate_entries = cropped_candidates if candidate_view == "crop5" else entries
                 names = [candidate_entries[c]["filename"] for c in pending]
-                measured = compare(sig_dir, [source_entry["filename"]], names, settings)
+                measured = compare(sig_dir, [source_entry["filename"]], names, settings,
+                                   source_paths={source_entry["filename"]: source_paths[source]},
+                                   progress_enabled=progress_enabled,
+                                   label=f"crop fallback {source_view}/{candidate_view}")
                 for candidate in pending:
                     candidate_entry = candidate_entries[candidate]
                     found = measured.get((source_entry["filename"], candidate_entry["filename"]))
@@ -666,7 +713,8 @@ def write_record(path, record):
 
 
 def scan(args, settings, sources, requested) -> int:
-
+    started = time.monotonic()
+    basis, threshold = coverage_rule(settings)
     source_root = Path(args.source)
     candidates_root = Path(args.candidates)
     if not source_root.exists():
@@ -705,7 +753,19 @@ def scan(args, settings, sources, requested) -> int:
 
     if not sources:
         die(f"no videos under {source_root}")
-    print(f"sources     {len(sources)}")
+    print(f"sources     {len(sources)}", flush=True)
+    progress_enabled = not getattr(args, "quiet", False)
+    if progress_enabled:
+        print(f"[progress] inventory: {len(sources)} sources, {len(requested)} candidates requested; "
+              f"cache {str(sig_dir)!r}", file=sys.stderr, flush=True)
+        print(f"[progress] settings: fps={settings['fps']:g}, "
+              f"coverage>={threshold:g}% of {coverage_label(basis)}, "
+              f"thxh={settings['thxh']}, coarse filter={'on' if settings['coarse_filter'] else 'off'}, "
+              f"crop={settings['crop_mode'] if settings['crop_bars'] else 'disabled'}, "
+              f"analysis={'on' if settings['analyze'] else 'off'}, "
+              f"crop fallback={'on' if settings['crop_fallback'] else 'off'}, "
+              f"comparison jobs requested={settings['jobs'] or 'auto'}",
+              file=sys.stderr, flush=True)
     # Signatures are content-addressed, so two copies of one video share a
     # filename. Every map below is therefore keyed on the signature and the
     # paths hang off it, rather than the other way round. A list of paths, not
@@ -714,14 +774,16 @@ def scan(args, settings, sources, requested) -> int:
     source_entries: dict[str, dict] = {}
     source_paths: dict[str, list[str]] = {}
     for i, video in enumerate(sources, 1):
-        entry = make_signature(video, con, sig_dir, settings, detector,
-                               ffmpeg_ver, failures, "source")
+        with Progress(f"source {i}/{len(sources)}: {str(video)!r}",
+                      enabled=progress_enabled) as progress:
+            entry = make_signature(video, con, sig_dir, settings, detector,
+                                   ffmpeg_ver, failures, "source", progress=progress)
+            progress.finish("signature ready" if entry else "signature failed")
         if entry:
             source_entries[entry["filename"]] = entry
             # As walked, like the candidates below: a report has to point at
             # the file where the caller said it was.
             source_paths.setdefault(entry["filename"], []).append(str(video))
-        print(f"\r  signatures {i}/{len(sources)}", end="", flush=True)
     con.commit()
     print()
 
@@ -744,12 +806,14 @@ def scan(args, settings, sources, requested) -> int:
     if source_entries:
         print(f"candidates  {len(videos)}, signatures cached in {sig_dir}")
         for i, video in enumerate(videos, 1):
-            entry = make_signature(video, con, sig_dir, settings, detector,
-                                   ffmpeg_ver, failures, "candidate")
+            with Progress(f"candidate {i}/{len(videos)}: {str(video)!r}",
+                          enabled=progress_enabled) as progress:
+                entry = make_signature(video, con, sig_dir, settings, detector,
+                                       ffmpeg_ver, failures, "candidate", progress=progress)
+                progress.finish("signature ready" if entry else "signature failed")
             if entry:
                 entries[entry["filename"]] = entry
                 shown.setdefault(entry["filename"], []).append(str(video))
-            print(f"\r  signatures {i}/{len(videos)}", end="", flush=True)
         con.commit()
         print()
 
@@ -762,27 +826,34 @@ def scan(args, settings, sources, requested) -> int:
     # Pass 1 measures each original video, independently of its signature views.
     # Analysis failures must not erase a valid signature or prevent comparison.
     analysis_failures = []
+    analysis_total = len(source_entries) + len(entries)
+    analysis_index = 0
     for inventory, paths in ((source_entries, source_paths), (entries, shown)):
         for key, entry in inventory.items():
             if not settings["analyze"]:
                 entry["_profile"] = {"status": "disabled"}
                 continue
             path = paths[key][0]
-            try:
-                entry["_profile"] = video_profile.make(
-                    Path(path), con, sig_dir, content_hash=entry["hash"],
-                    ffmpeg=settings["ffmpeg"], ffprobe=settings["ffprobe"],
-                    ffmpeg_version=ffmpeg_ver, overwrite=settings["overwrite"])
-            except (video_profile.ProfileError, sigmake.ToolError, OSError, sqlite3.Error) as exc:
-                entry["_profile"] = {"status": "failed", "reason": str(exc)}
-                analysis_failures.extend({"path": p, "reason": str(exc)} for p in paths[key])
+            analysis_index += 1
+            with Progress(f"analysis {analysis_index}/{analysis_total}: {path!r}",
+                          enabled=progress_enabled) as progress:
+                try:
+                    entry["_profile"] = video_profile.make(
+                        Path(path), con, sig_dir, content_hash=entry["hash"],
+                        ffmpeg=settings["ffmpeg"], ffprobe=settings["ffprobe"],
+                        ffmpeg_version=ffmpeg_ver, overwrite=settings["overwrite"], progress=progress)
+                except (video_profile.ProfileError, sigmake.ToolError, OSError, sqlite3.Error) as exc:
+                    entry["_profile"] = {"status": "failed", "reason": str(exc)}
+                    analysis_failures.extend({"path": p, "reason": str(exc)} for p in paths[key])
+                progress.finish(video_profile.describe(entry['_profile']))
             print(f"  analysis {path}: {video_profile.describe(entry['_profile'])}", flush=True)
 
     results, completed = {}, []
     error = None
     if source_entries and entries:
         try:
-            results = compare(sig_dir, sorted(source_entries), sorted(entries), settings)
+            results = compare(sig_dir, sorted(source_entries), sorted(entries), settings,
+                              source_paths=source_paths, progress_enabled=progress_enabled)
             completed = sorted(source_entries)
         except ComparisonError as exc:
             results, completed = exc.results, exc.completed
@@ -794,7 +865,7 @@ def scan(args, settings, sources, requested) -> int:
     if settings.get("crop_fallback") and error is None:
         fallback, completed, error = compare_crop_fallback(
             sig_dir, con, source_entries, source_paths, entries, shown,
-            settings, ffmpeg_ver, results)
+            settings, ffmpeg_ver, results, progress_enabled=progress_enabled)
     comparison_complete = (error is None and not any(f["role"] == "source" for f in failures))
     compared_paths = [p for key in completed for p in source_paths[key]]
     con.close()
@@ -813,13 +884,10 @@ def scan(args, settings, sources, requested) -> int:
         # ends.
         ceiling = min(source_entry["frames"], entries[name]["frames"])
         overrun = frames > max(ceiling * 1.02, ceiling + 2)
-        # How much of the source this candidate holds: the source's own frame
-        # count is the denominator, which is what the question asks. The
-        # duplicate-finding measure in benchmark.md divides by the shorter of
-        # the two instead, so its 40 per cent is not this 40 per cent.
-        coverage = 100.0 * frames / source_entry["frames"]
+        measures = coverage_values(frames, source_entry["frames"], entries[name]["frames"])
+        coverage = measures[basis + "_coverage_percent"]
         best[name] = max(best.get(name, 0.0), coverage)
-        if coverage < settings["min_coverage"]:
+        if coverage < threshold:
             continue
         if overrun:
             overran += 1
@@ -846,6 +914,8 @@ def scan(args, settings, sources, requested) -> int:
                     "source_frames": source_entry["frames"],
                     "candidate_frames": entries[name]["frames"],
                     "coverage_percent": round(coverage, 1),
+                    "coverage_basis": basis,
+                    **{key: round(value, 1) for key, value in measures.items()},
                     "framerateratio": found["framerateratio"],
                     "matched_seconds": round(frames / settings["fps"], 3),
                     "source_seconds": round(source_entry["seconds"], 3),
@@ -881,6 +951,10 @@ def scan(args, settings, sources, requested) -> int:
     print()
     for hit in hits:
         print(f"{hit['candidate_path']}   used {hit['source']}, {where_of(hit)}")
+        print(f"  estimated overlap {as_clock(hit['matched_seconds'])}; "
+              f"source {hit['source_coverage_percent']:.1f}%, "
+              f"candidate {hit['candidate_coverage_percent']:.1f}% "
+              f"(walk-count estimates; threshold uses {coverage_label(basis)})")
         for group in ("content_notes", "position_notes"):
             for note in hit["assessment"][group]:
                 print(f"  {group.removesuffix('_notes')}: {note}")
@@ -896,7 +970,7 @@ def scan(args, settings, sources, requested) -> int:
             if name not in matched | reviewed:
                 for path in shown[name]:
                     print(f"{path}   no match reaching the threshold, best "
-                          f"{best.get(name, 0.0):.0f}%")
+                          f"{best.get(name, 0.0):.0f}% of {coverage_label(basis)}")
     for failure in failures:
         print(f"{failure['path']}   could not be processed: "
               f"{failure['stage']}, {failure['reason']}")
@@ -910,7 +984,7 @@ def scan(args, settings, sources, requested) -> int:
     print(f"\nscanned {processed} candidate{'s' if processed != 1 else ''} "
           f"against {source_count} source{'s' if source_count != 1 else ''}, "
           f"{len(hits)} match{'es' if len(hits) != 1 else ''} over "
-          f"{settings['min_coverage']:.0f}%")
+          f"{threshold:.0f}% of {coverage_label(basis)}")
     if reviewed:
         print(f"  Needs review: {sum(h['requires_review'] for h in hits)} crop fallback matches")
     if overran:
@@ -978,6 +1052,10 @@ def scan(args, settings, sources, requested) -> int:
             print(f"cannot write {args.json}: {exc}", file=sys.stderr)
             return EXIT_UNUSABLE
         print(f"wrote {args.json}")
+    if progress_enabled:
+        state = "complete" if summary["complete"] else "incomplete"
+        print(f"[progress] scan {state} | elapsed {as_clock(time.monotonic() - started)}",
+              file=sys.stderr, flush=True)
     return summary["exit_status"]
 
 

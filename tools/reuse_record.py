@@ -37,8 +37,43 @@ describe one match two ways.
 #    colour-cropping warnings. Existing match measurements are unchanged.
 # 7: cross-view fallback, needs_review candidates, exact view provenance and
 #    per-pair fallback completion. Thresholds are unchanged.
-SCHEMA = "find_reuse/8"
-READABLE_SCHEMAS = ("find_reuse/3", "find_reuse/4", "find_reuse/5", "find_reuse/6", "find_reuse/7", SCHEMA)
+# 8: independent visual analysis and matched-span interpretation.
+# 9: shorter-video coverage by default; explicit source-only option. Records
+#    identify the selected denominator and retain both side estimates.
+SCHEMA = "find_reuse/9"
+READABLE_SCHEMAS = ("find_reuse/3", "find_reuse/4", "find_reuse/5", "find_reuse/6", "find_reuse/7", "find_reuse/8", SCHEMA)
+
+COVERAGE_CONFLICT = (
+    "--min-coverage and --min-source-coverage are mutually exclusive. "
+    "Choose only one: --min-coverage uses the shorter video; "
+    "--min-source-coverage uses the source. "
+    "See README.md#coverage-options for the differences and examples.")
+
+
+def coverage_rule(settings):
+    """The effective choice after configuration precedence has been applied."""
+    if settings.get("min_source_coverage") is not None:
+        return "source", settings["min_source_coverage"]
+    return "shorter", settings["min_coverage"]
+
+
+def coverage_values(frames, source_frames, candidate_frames):
+    """Raw walk-count estimates; do not hide overruns or speed limitations."""
+    return {"source_coverage_percent": 100.0 * frames / source_frames,
+            "candidate_coverage_percent": 100.0 * frames / candidate_frames,
+            "shorter_coverage_percent": 100.0 * frames / min(source_frames, candidate_frames)}
+
+
+def coverage_label(basis):
+    return "the source" if basis == "source" else "the shorter video"
+
+
+def coverage_limit(basis):
+    denominator = "source's own frame count" if basis == "source" else "shorter video's frame count"
+    return (f"coverage_percent is matchframes over the {denominator}. "
+            "Coverage and matched duration are estimates from the comparison's walk count, "
+            "with boundary and speed errors, not confidence scores. "
+            "They are not clamped when an overrun is reported.")
 
 # Exit status of find_reuse.py. Fixed here and in --help, tested in
 # tests/unit/test_find_reuse.py.
@@ -68,10 +103,10 @@ LIMITS = {
                      "This is not bar detection or general spatial alignment. Both directions "
                      "are recorded; the longest result is displayed, source-cropped first on ties. "
                      "Review-only results must not trigger automatic duplicate deletion.",
-    "matches": "Only pairs at or above min_coverage are in matches. A checked "
+    "matches": "Only pairs at or above the selected coverage threshold are in matches. A checked "
                "candidate carries its best coverage against any source, and "
                "nothing else about the pairs below the threshold is kept, so "
-               "this record cannot be re-thresholded lower than min_coverage.",
+               "this record cannot be re-thresholded lower or with a different denominator.",
     "shape": "One match per pair: the longest contiguous run the comparison "
              "found. A candidate that reuses a source in several separate "
              "places is reported by the longest of them, not their sum.",
@@ -79,9 +114,9 @@ LIMITS = {
              "source as the comparison voted it, on a grid of thirtieths. "
              "Positions always need visual verification. Away from 1.0 "
              "the walk keeps the two clips in step at that ratio, "
-             "matchframes counts the frames of the slower clip, so "
-             "coverage_percent under-reads by the ratio when the candidate "
-             "is the faster one, and a position on the faster side can be "
+             "matchframes is a single walk count, not independent frame counts "
+             "on the two timelines. Neither the coverage estimates nor matched_seconds "
+             "are speed-adjusted; a position on the faster side can be "
              "off by the length of the match times the gap between the true "
              "ratio and the grid. Such a match is reported with its ratio "
              "and says so. Before build 7 the walk stepped wrongly at any "
@@ -92,13 +127,13 @@ LIMITS = {
                  "Low-motion or repetitive scenes can place the match far "
                  "from the true location, even at ratio 1.0. Verify the video; "
                  "a timestamp is not a guarantee of a frame-accurate cut.",
-    "coverage": "coverage_percent is matchframes over the source's own frame "
-                "count, an estimate of source use with boundary and speed "
-                "errors. It is not the duplicate-finding measure, which divides "
-                "by the shorter of the two.",
+    "coverage": coverage_limit("shorter"),
     "short_source": "Sources shorter than about two minutes have produced false "
                     "matches on simple light/dark layouts. This is a risk "
                     "warning, not a classifier; longer sources are not guaranteed safe.",
+    "short_candidate": "With shorter-video coverage, a short candidate can set the denominator "
+                       "even against a long source. Similar-looking unrelated footage can pass "
+                       "this rule; review the visible content, not just the percentage.",
     "crop_uncertain": "When cropping is uncertain (for example, a static scene "
                       "in motion mode, darkness in black mode, or too few samples), the signature is "
                       "uncropped and barred copies may be missed.",
@@ -132,7 +167,7 @@ def crop_description(video: dict) -> str:
     return "Bars: " + label
 
 
-def video_warnings(video: dict, role: str) -> list[dict]:
+def video_warnings(video: dict, role: str, coverage_basis="source") -> list[dict]:
     codes = []
     seconds = video.get("seconds", 0)
     # Container duration may include audio extending past the video track.
@@ -141,6 +176,8 @@ def video_warnings(video: dict, role: str) -> list[dict]:
         seconds = video["frames"] / video["fps"]
     if role == "source" and 0 < seconds < 120:
         codes.append("short_source")
+    if role == "candidate" and coverage_basis == "shorter" and 0 < seconds < 120:
+        codes.append("short_candidate")
     if video.get("crop_state") == "uncertain":
         codes.append("crop_uncertain")
     if video.get("crop_mode") == "black":

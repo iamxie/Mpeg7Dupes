@@ -71,7 +71,7 @@ class Run(unittest.TestCase):
         done = self.run_script("--show-misses")
         self.assertEqual(done.returncode, 0, done.stderr)
         rec = self.record()
-        self.assertEqual(rec["schema"], "find_reuse/8")
+        self.assertEqual(rec["schema"], "find_reuse/9")
         self.assertEqual(sorted(self.statuses(rec).values()), ["checked", "matched"])
         self.assertEqual(self.statuses(rec, "sources"), {"mine.mp4": "processed"})
         s = rec["summary"]

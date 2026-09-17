@@ -114,9 +114,10 @@ python3 tools/render_report.py "reports/reuse.json" --out "reports/reuse.html"
 Open `reports/reuse.html` in your browser. Each row pairs your clip with a
 candidate that reached the reporting threshold. Play both videos to check
 the shared footage; the players open shortly before the reported match.
-With the shipped settings, a hit covers roughly 40% or more of **your source
-clip**, not 40% of the candidate. The report shows the matched length and
-positions so you can check what was found. `reports/reuse.json` keeps the
+With the shipped settings, a hit covers roughly 40% or more of **the shorter
+video**. A three-minute excerpt of a fifty-minute original can therefore pass.
+The report shows matched length, both side percentages and positions so you
+can check what was found. Percentages are estimates, not confidence scores. `reports/reuse.json` keeps the
 complete scan record for later use.
 
 ### 2. If you want to check a folder of your clips against another folder
@@ -148,9 +149,10 @@ python3 tools/render_report.py "reports/pair.json" --out "reports/pair.html"
 ```
 
 Open `reports/pair.html` and compare the matched length with both video
-lengths. A hit means enough of `original.mp4` was found to reach the threshold;
-it does not establish that the two entire videos are identical. Swap the
-source and candidate paths to ask the question in the other direction.
+lengths. A hit means the match reached the configured share of the shorter
+video; it does not establish that the entire videos are identical. The default
+coverage denominator is unchanged when you swap the two files. The optional
+[source-only rule](#coverage-options) does depend on which file is the source.
 
 ### 4. If a scan missed a copy that may have had its top and bottom cropped
 
@@ -168,6 +170,32 @@ Open `reports/crop-check.html` and inspect the rows labelled **Needs review:
 scan. Check both players before accepting them: trying cropped views can
 also add false matches. This option handles a specific crop hypothesis;
 a miss still does not rule out an edited copy.
+
+### While the scan is running
+
+**The scanner shows what it is doing before each slow step.** Your existing
+command enables this automatically; no debug flag is needed.
+
+| Progress message | Meaning |
+| --- | --- |
+| `source 7/99` or `candidate 12/250`, followed by a path | The file currently being processed. The counter advances when the next file starts; it is not a completed-file count. |
+| `hashing video`, `deciding crop`, `extracting signature` | The current preparation step. Signature extraction shows video duration and sampling rate. |
+| `signature cache hit` / `analysis cache hit` | That cached result is being reused. |
+| `checking ... cache / acquiring cache lock` | Checking the store, which may wait for another producer of the same cached result. |
+| `analysis 3/120` | Checking or generating a visual profile; analysis has its own counter. Identical files can share cached work. |
+| `compare 4/99` | Comparing the named source against the displayed number of unique candidate signatures. |
+| `still running` | The current operation has not returned after another 10 seconds. Elapsed time is shown; this is not a percentage, ETA or proof that the decoder is making progress. |
+| `signature ready` / `signature failed` | That signature attempt finished. The scan continues with the next usable input. |
+
+Each file/operation shows elapsed time, and the scan ends with its total
+elapsed time. The new `[progress]` lines go to stderr and are flushed immediately,
+including when redirected. Existing results and summaries stay on stdout;
+warnings also use stderr.
+
+- Add `--quiet` to hide the detailed progress and periodic messages while
+  keeping results and warnings.
+- To keep a progress/error log, append `2> reports/progress.log` to the scan
+  command (create `reports/` first).
 
 ### What to do with the report
 
@@ -197,7 +225,7 @@ scan.** They separate finding possible reuse from checking the footage:
 
 | Step | What it gives you | Why it matters |
 | --- | --- | --- |
-| Choose a source and candidates | A search for your clip inside other videos | The reporting threshold is based on how much of **your source** was found. |
+| Choose a source and candidates | A search for your clip inside other videos | The default threshold uses the **shorter video**, so short excerpts of long originals can pass. |
 | Run `find_reuse.py` | Cached signatures, visual analysis and a JSON scan record | Matching finds possible reuse; analysis adds context for reviewing it. |
 | Run `render_report.py` | Side-by-side players and result notes | You can confirm the footage and check its boundaries. Rendering does not repeat the scan. |
 | Keep the cache and JSON | Faster reruns and a record you can reopen | Unchanged signatures and visual profiles can be reused. Neither output modifies your videos. |
@@ -207,27 +235,54 @@ when you need to tune, troubleshoot or audit a run.
 
 ### Why source and candidate have different roles
 
-**Put the clip you are looking for in `--source`.** The scanner reports a
-pair when its matched frame count reaches the configured share of that source:
+**Put your originals in `--source` and the files to search in `--candidates`.**
+Every original is compared with every candidate. Sources are not compared
+against one another; for all pairs in a library, use the
+[direct signature workflow](#comparing-a-whole-library-directly).
 
-```text
-matched frames / frames in the source >= 0.40
-```
+### Coverage options
 
-With the default 40% threshold:
+**Choose one denominator.** The default is 40% of the shorter video.
 
-| Source | Candidate | Shared footage | Result |
-| --- | --- | --- | --- |
-| 60 seconds | 10 minutes | About 30 seconds | About 50% of the source: passes. |
-| 10 minutes | 60 seconds | About 30 seconds | About 5% of the source: does not pass. |
+| Option | Calculation, multiplied by 100 | Meaning |
+| --- | --- | --- |
+| `--min-coverage PCT` | `matchframes / min(source_frames, candidate_frames)` | A match must cover this share of the shorter video. Default: 40. |
+| `--min-source-coverage PCT` | `matchframes / source_frames` | A match must cover this share of the source. This preserves the rule used through v0.2.1. |
 
-Reversing the files changes the question. Coverage is approximate, especially
-when speeds differ; the threshold is a screening rule, not an exact measure
-of reused time.
+For a same-speed match spanning the stated shared footage:
 
-A source folder asks this question for every original against every candidate.
-It does not compare originals against one another. To compare every pair in
-one library, use the [direct signature workflow](#comparing-a-whole-library-directly).
+| Source | Candidate | Shared footage | Default `--min-coverage 40` | `--min-source-coverage 40` |
+| --- | --- | --- | --- | --- |
+| 50 minutes | 3 minutes | 3 minutes | About 100%: passes | About 6%: does not pass |
+| 3 minutes | 50 minutes | 3 minutes | About 100%: passes | About 100%: passes |
+| 50 minutes | 30 minutes | 3 minutes | About 10%: does not pass | About 6%: does not pass |
+
+Use the original quick-start command for the new default. To keep the old
+source-only decision, add `--min-source-coverage 40` instead. Changing this
+choice reuses cached signatures and profiles; `--overwrite` is unnecessary.
+
+**Do not supply both options.** The scanner stops before processing videos and
+points to this section. TOML uses `min_coverage` or `min_source_coverage`, also
+one key only. A command-line coverage option replaces the TOML choice, even
+when it selects the other denominator. A TOML file containing both keys is
+invalid regardless of command-line overrides. Values must be finite, 0–100.
+
+**Migration from v0.2.1 and earlier:** `--min-coverage` and the TOML key
+`min_coverage` now mean shorter-video coverage. Rename them to
+`--min-source-coverage` / `min_source_coverage` to retain the old rule. The
+bundled TOML selects the new default. Old JSON reports retain their original
+source-based interpretation; re-rendering does not change their matches.
+
+A smaller denominator can admit more real excerpts **and more false matches**.
+Coverage measures extent, not visual similarity; `thxh` controls frame
+similarity tolerance. Percentages and matched duration use the comparison's
+walk count and remain approximate, especially at different playback speeds.
+The report displays both side estimates and the selected threshold basis.
+
+Short reuse inside two long videos can remain below either percentage rule,
+as the last example shows. A separate duration-based reporting option is
+[deferred in TODO](todo.md#short-reuse-inside-long-compilations-deferred-until-a-real-case);
+no such option is implemented yet.
 
 ### Why the quick start keeps the matching defaults
 
@@ -238,7 +293,7 @@ problem.** The examples use `tools/find_reuse.toml`; precedence is
 | Setting | Why the quick start uses it | When to reconsider it |
 | --- | --- | --- |
 | `fps = 5` | Measured balance between signature size, time resolution and short-clip detection. | Raise it for short clips. Both sides must use the same rate; the scanner handles this. |
-| `min_coverage = 40` | Reports substantial overlap with the source in the measured sets. | Lower it to look for smaller excerpts, accepting more leads to inspect. Short, simple-looking sources can still give false matches. |
+| `min_coverage = 40` | Reports substantial overlap with the shorter video, including short excerpts of long originals. | Use `min_source_coverage` for the legacy source-only rule. Short, simple-looking videos can still give false matches; historical reuse accuracy does not validate this new default. |
 | `thxh = 290` | Measured frame-similarity tolerance (`-x 290` in C). | Treat changes as an experiment. Higher values accept more dissimilar frames and can add false matches. |
 | `crop_bars = true`, `crop_mode = "motion"` | Removes detected top/bottom bars so the picture can align with an unbordered copy. Uncertain detections leave it uncropped. | Inspect the crop on still or dark footage; see the choices below. |
 | `coarse_filter = true` | Saves comparison time and suppresses some short-source false matches. | Disable only for a controlled comparison; it can recover misses and add false matches. |
@@ -269,7 +324,7 @@ do about them and [benchmark.md](benchmark.md) for the supporting experiments.
   it off recovered 7 of 256 expected matches, all on a static sunset shot
   (5 had been lost through a bar-detector fault fixed since). It also added
   204 false matches: 10/20-second clips and an 8-second opening appeared in
-  unrelated videos at 40–100% coverage. Comparison took roughly three times
+  unrelated videos at 40–100% source coverage (the historical rule). Comparison took roughly three times
   as long; fingerprinting was unaffected. The choice is recorded in
   `settings.coarse_filter` and shown in HTML.
 - **Validation:** fps must be finite and positive; coverage must be 0–100;
@@ -491,7 +546,7 @@ and candidates to the reuse scanner does not do the same job.
    [CSV reading guide](#are-these-two-videos-the-same).
 
 The C defaults include `-f csv -m longest -x 290 -i 0 -k 1 -b 0.5`. The reuse
-scanner uses `-b 0.1` for its source-excerpt question.
+scanner uses `-b 0.1` in both coverage modes; changing the denominator does not change these C flags.
 
 ## Reading the result
 
@@ -555,8 +610,10 @@ Once the input inventory is collected, fatal errors also produce JSON when
 `--json` is supplied. Replacement is atomic: a write failure retains the
 previous file and exits 2. Early settings errors can also leave an older file
 in place, so check errors and the report's generation time after a failed run.
-Records use `find_reuse/8`; the renderer accepts versions 3–8 and displays
-unfinished work. Missing legacy analysis is labelled “not recorded.”
+Records use `find_reuse/9`; the renderer accepts versions 3–9 and displays
+unfinished work. Versions 3–8 retain source-only threshold semantics; missing
+legacy side percentages are not invented. Missing legacy analysis is labelled
+“not recorded.”
 
 </details>
 
@@ -570,14 +627,17 @@ lengths.
 | --- | --- | --- |
 | **Reuse starts** | The first candidate frame the comparison accepted. The source span is recorded too. | Scrub before and after both reported boundaries. |
 | **Matched** | Approximate matched length, derived from the matched frame count. | It is not an exact measurement of editing cuts or reused duration. |
+| **Source coverage / Candidate coverage** | Matched-frame count divided by each side's total sampled frames. | These are approximate extent estimates, not confidence scores or proof of copying. |
 | Speed ratio other than `1.0` | The comparison voted for different playback speeds. Coverage counts the slower clip's frames. | Both timing and length need extra care, especially the source-side span. |
 | Overrun | A reported span extends beyond a video's end. | Its length and position are unreliable; inspect the apparent shared content manually. |
 | Low-change or repeated scenes | Similar frames may occur at many positions. | A correct content match can still be placed a minute or more from its real location. |
 
-The scanner uses **the source's frame count** for the threshold. The terminal
-and HTML show that it passed, without presenting coverage as an exact reuse
-percentage. JSON retains the measured value for inspection. Short sources
-with simple layouts can pass even against unrelated footage; see [Limits](#limits).
+The scanner uses **the shorter video's frame count** by default, or the
+source's count when `--min-source-coverage` is selected. Terminal and HTML
+show the estimated duration and both percentages; the report states which
+threshold was applied. JSON retains the raw counts and selected basis.
+Short videos with simple layouts can pass against unrelated footage; see
+[Limits](#limits).
 
 <details>
 <summary>Measured examples: how approximate are coverage and timestamps?</summary>
@@ -645,10 +705,13 @@ Use these fields to check how a result was produced:
 
 | Field | What it records |
 | --- | --- |
+| `settings.coverage_basis` | `shorter` or `source`. Exactly one of `settings.min_coverage` and `settings.min_source_coverage` holds the active threshold; the other is `null`. |
+| Hit `coverage_percent` | Percentage used for the selected threshold. Candidate `best_coverage_percent` uses that same basis. |
+| Hit `source_coverage_percent`, `candidate_coverage_percent`, `shorter_coverage_percent` | Walk-count estimates with each denominator. `matched_seconds` is `matchframes / fps`; speed and boundary limitations still apply. |
 | `settings.comparison_args` | Actual C flags, including the scanner's `-b 0.1 -d 9000 -c 60000` with the default coarse filter. |
 | `settings.crop_mode`, video `crop_mode`, `tool.detector.mode` | Selected `motion`, `black` or `disabled` bar-crop mode. Extra fixed views and their evidence are described under [crop fallback](#optional-fixed-5-crop-fallback). |
 | `settings.analyze`, `tool.analysis` | Whether analysis was enabled, plus current analysis code and recipe. |
-| `tool` | Binary SHA-256 and scanner, detector and signature-producer code identities. |
+| `tool` | Binary SHA-256 and scanner, record/coverage rules, detector and signature-producer code identities. |
 | Video `content_hash` | BLAKE2b-128 identity of the video content. |
 | Video `signature` | Filename, SHA-256, stored detector version and original ffmpeg version. Cache hits retain the original producer version; missing legacy identities stay unknown. |
 | Video `analysis` | Status, recipe, original FFmpeg version, summaries, intervals and cached artifact SHA-256. |
@@ -760,14 +823,16 @@ measurements do not establish a precise cutoff for every length or scene.
 - Check missed excerpts manually. Raising `fps` is not a guaranteed fix for
   footage with little visual detail; see item 3.
 
-### 2. False matches: short sources can appear to match unrelated videos
+### 2. False matches: short videos can appear to match unrelated videos
 
-A reported match can be wrong when a short source and an unrelated candidate
-have similar light/dark layouts.
+A reported match can be wrong when the two videos have similar light/dark
+layouts. With shorter-video coverage, either side can set a small denominator.
 
 **Why this happens**
 
-- The reuse scanner reports a match at 40% of the **source's** frame count.
+- The default now reports a match at 40% of the **shorter video's** frame
+  count; `--min-source-coverage` retains the source-only rule. Reducing the
+  denominator does not make frame matching stricter.
 - At `-x 290`, frames with a similar layout, such as a dark sky above a lit
   foreground, can be accepted even when their content is unrelated.
 - An unrelated video can supply roughly 40 seconds of sufficiently similar
@@ -776,7 +841,7 @@ have similar light/dark layouts.
 **What was measured**
 
 A length test on the second validation set used two night timelapses and a
-basketball video game. For sources with these simple layouts:
+basketball video game, using the historical source-only rule. For sources with these simple layouts:
 
 | Source length | Unrelated candidates reported as matches |
 | --- | --- |
@@ -790,7 +855,7 @@ guarantee.
 
 **What you can do**
 
-- Review short-source matches in the HTML report, especially when the picture
+- Review matches involving a short video in the HTML report, especially when the picture
   has a simple layout.
 - Do not use `meandist` as an automatic fix. These false matches tended to have
   higher distances, but every tested cutoff that removed them also lost real
@@ -902,9 +967,10 @@ source coverage remains inaccurate.
 - Speed ratios use a grid of thirtieths. A true ratio between grid points
   causes alignment drift; the error grows with the match's length and the
   gap between the true and selected ratios.
-- `matchframes` counts frames of the slower clip. The reuse scanner still
-  divides that count by the source's frame count, so its coverage is not
-  adjusted to the actual amount of source footage used at another speed.
+- `matchframes` is a single comparison walk count. The scanner divides it by
+  the selected denominator; both displayed side percentages use that same
+  count. They are not independently counted frames on each timeline and are
+  not adjusted to the actual amount of footage used at another speed.
 
 **What was measured**
 
@@ -914,7 +980,7 @@ whole, with 240 and 300 matched frames respectively. Two limitations remained:
 | Case | Observed error |
 | --- | --- |
 | 0.8x copy | Start reported at 2.6 s instead of 0 because of the ratio grid |
-| 1.25x copy containing the whole source | Reuse-scanner coverage read 80% |
+| 1.25x copy containing the whole source | Historical source-only coverage read 80% |
 
 Historical fixes should not be confused with these remaining limits: build 6
 lost the faster copy within a few frames and voted `0.07` for a 12 s quotation
@@ -1123,7 +1189,8 @@ A setting that works on a validation set can still fail on your footage.
 **What the evidence covers**
 
 The first two independent sets used sixteen sources not in the original
-tuning set. Their historical results were:
+tuning set. Their historical results were (contains-my-clip used source-only
+coverage; these are not new measurements of the shorter-video default):
 
 | Set | Same-video pairs found | False matches among other pairs | Contains-my-clip pairs found | False matches among other pairs |
 | --- | --- | --- | --- | --- |

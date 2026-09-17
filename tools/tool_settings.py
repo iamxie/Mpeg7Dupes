@@ -5,16 +5,18 @@ import math
 def validate(settings):
     if settings.get('crop_mode', 'motion') not in ('motion', 'black'):
         raise ValueError('crop_mode must be motion or black')
-    for key in ('fps', 'min_coverage'):
+    for key in ('fps', 'min_coverage', 'min_source_coverage'):
         if key not in settings:
             continue
         value = settings[key]
+        if key != 'fps' and value is None:
+            continue  # The inactive coverage option after precedence resolution.
         if type(value) not in (int, float) or not math.isfinite(value):
             raise ValueError(f'{key} must be a finite number')
         if key == 'fps' and value <= 0:
             raise ValueError('fps must be greater than zero')
-        if key == 'min_coverage' and not 0 <= value <= 100:
-            raise ValueError('min_coverage must be between 0 and 100')
+        if key != 'fps' and not 0 <= value <= 100:
+            raise ValueError(f'{key} must be between 0 and 100')
     for key in ('jobs', 'thxh', 'limit'):
         if key in settings and (type(settings[key]) is not int or
                                 not 0 <= settings[key] <= 2147483647):

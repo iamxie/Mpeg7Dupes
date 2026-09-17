@@ -28,9 +28,12 @@ and keep pairs whose **coverage** is at least 40 per cent, where
 coverage = matchframes / min(frames in file A, frames in file B)
 ```
 
-`tools/find_reuse.py` does all of it, cropping included, for the question
-"does their video contain my clip"; for that question it divides by the
-source's own frame count instead, which is not the measure below.
+`tools/find_reuse.py` now defaults to the shorter-video denominator too, while
+retaining its `-b 0.1` comparison setting. `--min-source-coverage` selects the
+source-only rule used through v0.2.1. Historical reuse results and commands
+below retain their original source-only meaning; they have not been rerun or
+relabelled as accuracy measurements of the new default. See
+[Coverage options](README.md#coverage-options) for migration and examples.
 
 Each setting, and why:
 

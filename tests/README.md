@@ -59,6 +59,21 @@ Not every function has a mirror test. A behaviour change or a fixed defect
 gets a test that would have failed before it; the rest is covered by the
 observable results above.
 
+`unit/test_scan_progress.py` checks flushed file/stage messages, periodic
+elapsed-time updates that stop on exit, failed-operation wording, a closed
+progress pipe, cold/hot cache explanations, partial failures and `--quiet`.
+Progress does not add video reads or change match records; the real smoke
+test still checks that a warm scan neither decodes nor probes video.
+
+`unit/test_coverage.py` checks long originals with short excerpts in both
+roles, the source-only mode, CLI/TOML mutual exclusion and precedence,
+unchanged caches, the fallback gate, both reported side percentages, raw
+overruns and legacy report interpretation. `coverage_video.py` adds a real
+FFmpeg/C check: a 12-second excerpt of a 60-second original passes the new
+default in both roles, stays below the legacy source-only threshold when the
+original is the source, and reuses signatures when the choice changes.
+These tests verify the reporting rule, not real-world false-positive rates.
+
 `unit/test_p2_parallel.py` observes real worker IDs for a single incremental
 source, checks every candidate pair exactly once (including no-match ledger
 entries), compares serial/parallel CSV, and checks resume and output failure.

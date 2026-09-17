@@ -47,16 +47,40 @@ current separate analysis decode while preserving signature bytes, cache
 identities and failure isolation. Any use of these properties to filter hits
 or choose crop modes requires a separate decision and independent evaluation.
 
-## Speed-adjusted source coverage (low; separate behaviour change)
+## Speed-adjusted coverage (low; separate behaviour change)
 
-`matchframes` counts walk steps; it is not a reliable count of source frames
-used at another speed. Source and candidate spans are already recorded.
-Ranking candidates at different ratios remains unchanged by decision.
+`matchframes` counts walk steps; it is not a reliable count of independently
+used frames on both timelines at another speed. The scanner now selects a
+shorter-video or source-only denominator and displays both side percentages,
+but all still use that one raw count and are labelled estimates. Source and
+candidate spans are already recorded. Ranking candidates at different ratios
+remains unchanged by decision.
 
-Done when: define source coverage, inclusive endpoints and tolerated bad
+Done when: define both side coverages, inclusive endpoints and tolerated bad
 frames; test full and partial reuse in both directions at 0.8x, 1.25x and
 off-grid speeds; compare the old corpus's threshold decisions; version the
 record/behaviour change. Preserve the grid/low-motion position limitations.
+
+## Short reuse inside long compilations (deferred until a real case)
+
+The owner deferred this case until it occurs in real material: a long source
+contributes a short excerpt to another long video. For example, three minutes
+from a fifty-minute source inside a thirty-minute compilation cover only ten
+per cent of the shorter video. A shorter-video denominator alone would still
+miss it at a forty-per-cent threshold.
+
+Revisit with labelled real positives and look-alike negatives. Investigate an
+optional duration-based path for reporting a continuous match even when its
+coverage is below threshold, separately from the coverage-denominator change.
+No duration threshold or new CLI option is chosen or implemented yet.
+
+Done when: define which video's timeline measures duration under speed changes,
+how duration and coverage combine, and whether duration-only hits need review;
+measure recovered excerpts and added false positives, including independent
+shots of the same location, dark/static footage and repetitive camera movement.
+A long apparent match alone must not be treated as proof of shared footage.
+Preserve the distinction between one continuous span and accumulated fragments,
+and document the resulting decision in both JSON and the rendered report.
 
 ## A standalone signature verification command (low)
 

@@ -26,14 +26,12 @@ stay as supplied. Legacy records can use --path-base; without it their old
 report-folder resolution is kept with a warning. Nothing is copied or
 re-encoded. Missing files are named so blank players are explained.
 
-What the page deliberately does not say
----------------------------------------
-Match coverage is not presented as an exact percentage. The comparison over-reports how much of a
-source was used, by however far the walk carries past each end of the shared
-region, so a figure like "88%" would be quoted back as exact when it is not.
-The page gives the two durations and the matched length instead and lets the
-reader form the ratio, which is the same information without the false
-precision.
+Coverage is approximate
+-----------------------
+New records show both side percentages as walk-count estimates, alongside
+matched duration and the selected threshold denominator. Boundary and speed
+errors remain visible. Versions 3–8 retain their original source-only
+threshold interpretation; missing side percentages are not invented.
 """
 
 import argparse
@@ -52,7 +50,8 @@ from urllib.parse import quote
 # data module is all that takes, rather than loading the scanner.
 try:
     from reuse_record import (SCHEMA, READABLE_SCHEMAS, FAILED, SKIPPED, NOT_COMPARED,
-                              LIMITS, as_clock, where_of, crop_description, video_warnings)
+                              LIMITS, as_clock, where_of, crop_description, video_warnings,
+                              coverage_rule, coverage_label, coverage_limit)
 except ImportError:
     sys.exit("render_report.py needs reuse_record.py beside it in tools/")
 
@@ -150,6 +149,12 @@ def duration_cell(match: dict) -> str:
              f'<li>Speed ratio <b>{match["framerateratio"]:.2f}</b>: the '
              f'coverage counts the slower clip\'s frames; positions have '
              f'additional speed-grid error and need visual verification</li>')
+    coverage = ""
+    if 'source_coverage_percent' in match and 'candidate_coverage_percent' in match:
+        coverage = (
+            f'<li>Source coverage <b>{match["source_coverage_percent"]:.1f}%</b>; '
+            f'Candidate coverage <b>{match["candidate_coverage_percent"]:.1f}%</b> '
+            '(walk-count estimates, not confidence scores)</li>')
     return (
         '<ul class="facts">'
         + ('<li><b>Needs review: 5% crop fallback</b>. Compared '
@@ -160,7 +165,7 @@ def duration_cell(match: dict) -> str:
         f'<li>Their video <b>{as_clock(match["candidate_seconds"])}</b></li>'
         f'<li>Matched <b>{as_clock(matched)}</b> ({matched:.0f} s, '
         f'{match["matchframes"]} frames)</li>'
-        f'{overrun}{speed}{bars_lines(match)}{assessment_lines(match)}'
+        f'{coverage}{overrun}{speed}{bars_lines(match)}{assessment_lines(match)}'
         '</ul>')
 
 
@@ -300,6 +305,10 @@ def render(record: dict, missing: list[str], media_paths: dict | None = None) ->
     """The whole page. It shows what the record says and decides nothing:
     which candidates matched was settled by find_reuse.py at its threshold."""
     settings = record["settings"]
+    # Versions 3–8 always used the source denominator. Never reinterpret an
+    # old report using today's default or invent unrecorded percentages.
+    basis, threshold = (coverage_rule(settings) if record.get('schema') == SCHEMA
+                        else ('source', settings['min_coverage']))
     videos = {v["path"]: v for v in record["sources"] + record["candidates"]}
     matches = []
     for original in record["matches"]:
@@ -360,13 +369,14 @@ def render(record: dict, missing: list[str], media_paths: dict | None = None) ->
   </table>"""
     else:
         complete = record.get("comparison", {}).get("complete", summary.get("complete", True))
-        message = (f'No candidate reached the {settings["min_coverage"]:.0f}% threshold; reuse is not ruled out.'
+        message = (f'No candidate reached the {threshold:.0f}% of {coverage_label(basis)} threshold; reuse is not ruled out.'
                    if complete else 'No completed match to show. Comparisons are incomplete; see the file statuses above.')
         body = f'<div class="empty">{message}</div>'
 
     # Current interpretation warnings also apply to older readable records.
     limits = dict(record.get("limits", {}))
     limits.update(LIMITS)
+    limits['coverage'] = coverage_limit(basis)
     caveats = '<ul>' + ''.join(f'<li>{html.escape(value)}</li>' for value in limits.values()) + '</ul>'
     flags = html.escape(' '.join(settings.get("comparison_args", [])) or 'not recorded (legacy record)')
 
@@ -388,7 +398,7 @@ def render(record: dict, missing: list[str], media_paths: dict | None = None) ->
       <dt>Frame threshold</dt><dd>-x {settings["thxh"]}</dd>
       <dt>Search mode</dt><dd>{html.escape(settings["mode"])}</dd>
       <dt>Report threshold</dt>
-        <dd>{settings["min_coverage"]:.0f}% of the source</dd>
+        <dd>{threshold:.0f}% of {coverage_label(basis)}</dd>
       <dt>Bar cropping</dt>
         <dd>{html.escape(settings.get("crop_mode", "motion") + " mode") if settings["crop_bars"] else "off"}</dd>
       <dt>Coarse filter</dt><dd>{"off, -d 10001" if settings.get("coarse_filter") is False else "on"}</dd>
